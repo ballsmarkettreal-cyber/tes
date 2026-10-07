@@ -1,89 +1,110 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+
 local player = Players.LocalPlayer
-local hrp = player.Character:WaitForChild("HumanoidRootPart")
 
-local out, seen = {}, {}
-local function add(s) table.insert(out, s) end
+local function dump(inst, depth, out, maxDepth)
+    if depth > maxDepth then return end
 
-local function attrs(inst)
-    local t = {}
+    local indent = string.rep("  ", depth)
+
+    local attrList = {}
     for k, v in pairs(inst:GetAttributes()) do
-        table.insert(t, k .. "=" .. tostring(v))
+        table.insert(attrList, k .. "=" .. tostring(v))
     end
-    return #t > 0 and table.concat(t, ", ") or "-"
-end
 
-local function topInstance(inst)
-    local p = inst
-    while p.Parent and p.Parent ~= Workspace do p = p.Parent end
-    return p
-end
+    local extra = (#attrList > 0) and (" | ATTR: " .. table.concat(attrList, ", ")) or ""
 
-local params = OverlapParams.new()
-params.FilterType = Enum.RaycastFilterType.Exclude
-params.FilterDescendantsInstances = {player.Character}
+    table.insert(
+        out,
+        indent .. "• " .. inst.Name .. " [" .. inst.ClassName .. "]" .. extra
+    )
 
-for _, v in ipairs(Workspace:GetDescendants()) do
-    if v:IsA("ProximityPrompt") and v.Name == "CarryAreaEgg" then
-        local part = v.Parent
-        if part and part:IsA("BasePart") and (part.Position - hrp.Position).Magnitude < 40 then
-            add("== prompt di " .. tostring(part.Position))
-            for _, hit in ipairs(Workspace:GetPartBoundsInRadius(part.Position, 12, params)) do
-                if hit ~= part and hit.Name ~= "Baseplate" then
-                    local top = topInstance(hit)
-                    if not seen[top] and top.Name ~= "Terrain" then
-                        seen[top] = true
-                        add("• " .. top:GetFullName() .. " (" .. top.ClassName .. ") attr: " .. attrs(top))
-                        add("    hit: " .. hit.Name .. " attr: " .. attrs(hit))
-                        for _, d in ipairs(top:GetDescendants()) do
-                            if d:IsA("ValueBase") then
-                                add("    value " .. d.Name .. " = " .. tostring(d.Value))
-                            elseif d:IsA("TextLabel") and d.Text ~= "" then
-                                add("    text = " .. d.Text)
-                            end
-                        end
-                    end
-                end
-            end
-            add("")
+    if inst:IsA("ValueBase") then
+        table.insert(out, indent .. "  VALUE = " .. tostring(inst.Value))
+    end
+
+    if inst:IsA("ProximityPrompt") then
+        table.insert(out, indent .. "  PROMPT ActionText=" .. tostring(inst.ActionText))
+        table.insert(out, indent .. "  PROMPT ObjectText=" .. tostring(inst.ObjectText))
+    end
+
+    if inst:IsA("TextLabel") or inst:IsA("TextButton") then
+        if inst.Text ~= "" then
+            table.insert(out, indent .. "  TEXT = " .. inst.Text)
         end
     end
+
+    for _, child in ipairs(inst:GetChildren()) do
+        dump(child, depth + 1, out, maxDepth)
+    end
 end
 
-local text = #out > 0 and table.concat(out, "\n") or "Tidak ada objek dekat prompt"
-pcall(function() if setclipboard then setclipboard(text) end end)
+local out = {}
 
-local old = player.PlayerGui:FindFirstChild("EggInspect2")
-if old then old:Destroy() end
+table.insert(out, "===== EGG STRUCTURE INSPECTOR =====")
+table.insert(out, "")
+
+local folder = Workspace:FindFirstChild("AreaEggSlotsClient")
+
+if not folder then
+    table.insert(out, "AreaEggSlotsClient TIDAK DITEMUKAN.")
+else
+    table.insert(out, "FOUND: " .. folder:GetFullName())
+    table.insert(out, "")
+
+    for _, child in ipairs(folder:GetChildren()) do
+        dump(child, 0, out, 8)
+        table.insert(out, "")
+    end
+end
+
+local text = table.concat(out, "\n")
+
+pcall(function()
+    if setclipboard then
+        setclipboard(text)
+    end
+end)
+
+local old = player.PlayerGui:FindFirstChild("EggInspect3")
+if old then
+    old:Destroy()
+end
 
 local sg = Instance.new("ScreenGui")
-sg.Name = "EggInspect2"
+sg.Name = "EggInspect3"
 sg.ResetOnSpawn = false
 sg.Parent = player.PlayerGui
 
-local sf = Instance.new("ScrollingFrame", sg)
-sf.Size = UDim2.new(0.9, 0, 0.6, 0)
-sf.Position = UDim2.new(0.05, 0, 0.2, 0)
+local sf = Instance.new("ScrollingFrame")
+sf.Parent = sg
+sf.Size = UDim2.new(0.92, 0, 0.75, 0)
+sf.Position = UDim2.new(0.04, 0, 0.12, 0)
 sf.BackgroundColor3 = Color3.new(0, 0, 0)
-sf.BackgroundTransparency = 0.15
+sf.BackgroundTransparency = 0.1
+sf.ScrollBarThickness = 8
 sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
 sf.CanvasSize = UDim2.new(0, 0, 0, 0)
-sf.ScrollBarThickness = 6
 
-local lbl = Instance.new("TextLabel", sf)
-lbl.Size = UDim2.new(1, -10, 0, 0)
+local lbl = Instance.new("TextLabel")
+lbl.Parent = sf
+lbl.Size = UDim2.new(1, -12, 0, 0)
 lbl.AutomaticSize = Enum.AutomaticSize.Y
 lbl.BackgroundTransparency = 1
 lbl.TextColor3 = Color3.new(1, 1, 1)
-lbl.TextWrapped = true
+lbl.TextWrapped = false
 lbl.TextSize = 12
+lbl.Font = Enum.Font.Code
 lbl.TextXAlignment = Enum.TextXAlignment.Left
 lbl.TextYAlignment = Enum.TextYAlignment.Top
 lbl.Text = text
 
-local close = Instance.new("TextButton", sg)
-close.Size = UDim2.new(0, 44, 0, 30)
-close.Position = UDim2.new(0.95, -44, 0.2, -34)
+local close = Instance.new("TextButton")
+close.Parent = sg
+close.Size = UDim2.new(0, 50, 0, 32)
+close.Position = UDim2.new(0.94, -50, 0.12, -38)
 close.Text = "X"
-close.MouseButton1Click:Connect(function() sg:Destroy() end)
+close.MouseButton1Click:Connect(function()
+    sg:Destroy()
+end)
