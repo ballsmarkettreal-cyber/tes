@@ -1,265 +1,234 @@
 --[[
-    EX COMMUNITY | STEAL AN EGG - V24 ULTIMATE SAFE
-    Fitur: Anti-Cheat Bypassed, Multi-Select Filters, Config Menu (Auto-Save 2s), Raycast Landing (Anti Tenggelam)
+    EX COMMUNITY | STEAL AN EGG - V24 ULTIMATE COMPLETE & SAFE
+    - Fitur lengkap V23 dipertahankan (Automation, Events, Shops, Webhook, Performance)
+    - Anti-Cheat Safe Movement (Tween + Raycast Landing anti tenggelam)
+    - Multi-Select Filter (Size, Rarity, Variant dapat digabung)
+    - Menu Config dengan Auto-Save setiap 2 detik (Default ON) & Save Now
 ]]
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
+local HttpService = game:GetService("HttpService")
+local StatsService = game:GetService("Stats")
 local VirtualUser = game:GetService("VirtualUser")
+local GuiService = game:GetService("GuiService")
+local VirtualInputManager = nil
+pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- Bersihkan versi sebelumnya
+if _G.EX_STEAL_EGG_CLEANUP then pcall(_G.EX_STEAL_EGG_CLEANUP) end
 for _, v in ipairs(playerGui:GetChildren()) do
     if v.Name:match("EX_StealAnEgg") then v:Destroy() end
 end
 
-local VERSION = "V24-Safe"
+local VERSION = "V24-Complete"
 local SAVE_FILE = "EX_StealAnEgg_V24.json"
 local BASE_RADIUS = 140
 
 -- ==========================================
--- SISTEM CONFIG & AUTO-SAVE
+-- HINTS & DEFINISI
 -- ==========================================
-local config = {
-    running = false,
-    method = "Fly",
-    targetMode = "All",
-    flySpeed = 70,
-    flyHeight = 10,
-    autoSave = true, -- Default ON
-    antiAfk = true,
-    filters = {
-        Size = {},
-        Rarity = {},
-        Variant = {}
-    },
-    areas = {},
+local HINTS = {
+    hatch = { "hatch" },
+    place = { "place" },
+    fuse = { "fuse" },
+    index = { "claim" },
+    treadmill = { "treadmill", "tredmill" },
+    trap = { "trap", "snare", "cage", "stun", "freeze", "glue" },
 }
 
-local function loadSettings()
+local AREAS = {
+    "Forest", "Lake", "Desert", "Jungle", "Snow", "Volcano", "Abyss Ocean", "Prehistoric",
+    "Cosmic", "Cherry Blossom", "Titan Temple", "Angels & Demons", "Enchanted Forest",
+}
+local AREA_DETECT = {
+    { "Enchanted Forest", { "enchanted" } },
+    { "Angels & Demons", { "angel", "demon" } },
+    { "Cherry Blossom", { "cherry", "blossom" } },
+    { "Titan Temple", { "titan" } },
+    { "Abyss Ocean", { "abyss" } },
+    { "Prehistoric", { "prehistoric" } },
+    { "Cosmic", { "cosmic" } },
+    { "Volcano", { "volcano" } },
+    { "Snow", { "snow" } },
+    { "Jungle", { "jungle" } },
+    { "Desert", { "desert" } },
+    { "Lake", { "lake" } },
+    { "Forest", { "forest" } },
+}
+
+local EVENT_DEFS = {
+    { id = "scramble", name = "Dr. Scramble Mecha & Drone", desc = "Boss tiap 30 mnt", keywords = { "scramble", "mecha", "drone" }, mode = "attack", tool = "bat" },
+    { id = "rift", name = "Rift & Overlord", desc = "Tiap 30 mnt", keywords = { "overlord", "rift" }, mode = "attack", tool = "bat" },
+    { id = "greatbloom", name = "Great Bloom", desc = "Tiap 30 mnt", keywords = { "greatbloom", "great bloom" }, mode = "collect" },
+    { id = "butterfly", name = "Butterfly Bloom", desc = "Tangkap kupu-kupu", keywords = { "butterfly" }, mode = "collect", tool = "net" },
+    { id = "frog", name = "Hungry Frog", desc = "Parasit", keywords = { "parasite", "hungryfrog", "frog" }, mode = "collect" },
+    { id = "angdem", name = "Angels vs Demons", desc = "Kumpulkan ring", keywords = { "ring" }, mode = "touch" },
+    { id = "admin", name = "Admin Abuse", desc = "Event admin", keywords = { "sammy" }, mode = "attack", tool = "bat" },
+}
+
+local SHOPS = {
+    { name = "Shop Utama", info = "Featured Egg", gui = { "shop" }, world = { "shop" } },
+    { name = "Experiment Shop", info = "Booster & Experiment Egg", gui = { "experiment" }, world = { "experiment" } },
+    { name = "Dr. Scramble's Lab", info = "Lab", gui = { "laboratory", "lab" }, world = { "laboratory", "lab" } },
+    { name = "Boss Shop", info = "Boss Tokens", gui = { "boss shop", "bossshop" }, world = { "bossshop", "boss shop" } },
+}
+
+local THEME = {
+    bg1 = Color3.fromRGB(28, 16, 46),
+    bg2 = Color3.fromRGB(8, 5, 16),
+    card = Color3.fromRGB(38, 26, 62),
+    accent = Color3.fromRGB(128, 62, 230),
+    accent2 = Color3.fromRGB(110, 210, 255),
+    text = Color3.fromRGB(240, 236, 255),
+    sub = Color3.fromRGB(160, 148, 195),
+    good = Color3.fromRGB(74, 222, 128),
+    warn = Color3.fromRGB(250, 204, 21),
+    bad = Color3.fromRGB(248, 113, 113),
+}
+
+-- ==========================================
+-- CONFIG & PENYIMPANAN
+-- ==========================================
+local saved = {}
+do
     if typeof(readfile) == "function" and typeof(isfile) == "function" then
         local ok, data = pcall(function()
             if isfile(SAVE_FILE) then return HttpService:JSONDecode(readfile(SAVE_FILE)) end
             return nil
         end)
-        if ok and type(data) == "table" then
-            if data.flySpeed then config.flySpeed = data.flySpeed end
-            if data.flyHeight then config.flyHeight = data.flyHeight end
-            if data.autoSave ~= nil then config.autoSave = data.autoSave end
-            if data.filters then config.filters = data.filters end
-        end
+        if ok and type(data) == "table" then saved = data end
     end
 end
-loadSettings()
+
+local function S(key, default)
+    local v = saved[key]
+    if v == nil then return default end
+    return v
+end
+
+local function listToSet(list)
+    local s = {}
+    for _, v in ipairs(list or {}) do s[v] = true end
+    return s
+end
+
+local function setToList(set)
+    local l = {}
+    for k, on in pairs(set) do if on then table.insert(l, k) end end
+    table.sort(l)
+    return l
+end
+
+local function newFilterSet(key)
+    local raw = S(key, {})
+    if type(raw) ~= "table" then raw = {} end
+    return {
+        Size = listToSet(raw.Size),
+        Rarity = listToSet(raw.Rarity),
+        Variant = listToSet(raw.Variant),
+    }
+end
+
+local areaCenters = { Forest = Vector3.new(597, 10, -324) }
+for name, arr in pairs(S("areaCenters", {})) do
+    if type(arr) == "table" and #arr == 3 then areaCenters[name] = Vector3.new(arr[1], arr[2], arr[3]) end
+end
+
+local config = {
+    running = false,
+    treadmillIdle = false,
+    method = "Fly",
+    targetMode = "All",
+    filters = newFilterSet("filters"),
+    placeFilters = newFilterSet("placeFilters"),
+    areas = listToSet(S("areas", {})),
+    skipOwn = true,
+    flySpeed = S("flySpeed", 75),
+    flyHeight = S("flyHeight", 12),
+    antiKB = S("antiKB", false),
+    antiTrap = S("antiTrap", false),
+    antiAfk = S("antiAfk", true),
+    autoSave = S("autoSave", true), -- Default ON
+    removePopups = S("removePopups", false),
+    events = {},
+    auto = { hatch = false, place = false, fuse = false, index = false },
+    autoInterval = S("autoInterval", 6),
+    eggWebhookOn = false,
+    eggWebhookUrl = S("eggWebhookUrl", ""),
+    statsWebhookOn = false,
+    statsWebhookUrl = S("statsWebhookUrl", ""),
+    statsIntervalMin = S("statsIntervalMin", 5),
+}
+
+local stats = { stolen = 0, failed = 0 }
+local sessionStart = os.clock()
+local baseCFrame = nil
+local connections = {}
+local uiAlive = true
+local ui = {}
+local sg
+
+local function track(conn)
+    table.insert(connections, conn)
+    return conn
+end
 
 local function saveSettings()
     if typeof(writefile) ~= "function" then return end
+    local function f(sets)
+        return { Size = setToList(sets.Size), Rarity = setToList(sets.Rarity), Variant = setToList(sets.Variant) }
+    end
+    local centers = {}
+    for name, v in pairs(areaCenters) do centers[name] = { v.X, v.Y, v.Z } end
     local data = {
+        areas = setToList(config.areas),
+        filters = f(config.filters),
+        placeFilters = f(config.placeFilters),
         flySpeed = config.flySpeed,
         flyHeight = config.flyHeight,
+        antiKB = config.antiKB,
+        antiTrap = config.antiTrap,
+        antiAfk = config.antiAfk,
         autoSave = config.autoSave,
-        filters = config.filters,
+        autoInterval = config.autoInterval,
+        eggWebhookUrl = config.eggWebhookUrl,
+        statsWebhookUrl = config.statsWebhookUrl,
+        statsIntervalMin = config.statsIntervalMin,
+        areaCenters = centers,
     }
     pcall(writefile, SAVE_FILE, HttpService:JSONEncode(data))
 end
 
--- Background Auto-Save Loop (Setiap 2 detik jika aktif)
+-- Auto-save loop setiap 2 detik jika aktif
 task.spawn(function()
     while true do
         task.wait(2)
-        if config.autoSave then
+        if config.autoSave and uiAlive then
             saveSettings()
         end
     end
 end)
 
--- ==========================================
--- TEMA & UI UTAMA
--- ==========================================
-local THEME = {
-    bg1 = Color3.fromRGB(15, 10, 25),
-    accent = Color3.fromRGB(120, 30, 210),
-    accent2 = Color3.fromRGB(80, 200, 255),
-    text = Color3.fromRGB(240, 240, 255),
-    sub = Color3.fromRGB(180, 170, 200),
-}
-
-local sg = Instance.new("ScreenGui")
-sg.Name = "EX_StealAnEgg_V24"
-sg.ResetOnSpawn = false
-sg.Parent = playerGui
-
-local f = Instance.new("Frame", sg)
-f.Size = UDim2.new(0, 540, 0, 360)
-f.Position = UDim2.new(0.5, -270, 0.5, -180)
-f.BackgroundColor3 = THEME.bg1
-f.BackgroundTransparency = 0.25
-f.Active = true
-f.Draggable = true
-f.ClipsDescendants = true
-Instance.new("UICorner", f).CornerRadius = UDim.new(0, 10)
-
--- Glowing RGB Border
-local bgStroke = Instance.new("UIStroke", f)
-bgStroke.Color = Color3.fromRGB(255, 255, 255)
-bgStroke.Thickness = 2
-local strokeGrad = Instance.new("UIGradient", bgStroke)
-strokeGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 30, 210)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(80, 200, 255)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 80, 200))
-})
-RunService.RenderStepped:Connect(function(dt)
-    if sg.Parent then strokeGrad.Rotation = (strokeGrad.Rotation + (dt * 50)) % 360 end
-end)
-
--- Animasi Bintang Jatuh (Tebal & Estetik)
-local starContainer = Instance.new("Frame", f)
-starContainer.Size = UDim2.new(1, 0, 1, 0)
-starContainer.BackgroundTransparency = 1
-starContainer.ZIndex = 0
-starContainer.ClipsDescendants = true
-
-task.spawn(function()
-    local rng = Random.new()
-    while f.Parent do
-        task.wait(rng:NextNumber(0.2, 0.4))
-        local star = Instance.new("Frame", starContainer)
-        star.Size = UDim2.new(0, rng:NextInteger(80, 140), 0, rng:NextInteger(3, 5))
-        star.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        star.Rotation = 35
-        star.Position = UDim2.new(rng:NextNumber(-0.2, 0.5), 0, -0.2, 0)
-        
-        local grad = Instance.new("UIGradient", star)
-        grad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(1, THEME.accent)
-        })
-        Instance.new("UICorner", star).CornerRadius = UDim.new(1, 0)
-        
-        local dur = rng:NextNumber(0.8, 1.3)
-        local tw = TweenService:Create(star, TweenInfo.new(dur, Enum.EasingStyle.Linear), {Position = UDim2.new(rng:NextNumber(0.4, 0.9), 0, 1.2, 0)})
-        tw:Play()
-        task.delay(dur, function() star:Destroy() end)
+local function log(msg)
+    msg = os.date("%H:%M:%S") .. "  " .. tostring(msg)
+    if ui.logLabel then
+        ui.logLabel.Text = msg .. "\n" .. ui.logLabel.Text
     end
-end)
-
--- HEADER
-local header = Instance.new("Frame", f)
-header.Size = UDim2.new(1, 0, 0, 40)
-header.BackgroundTransparency = 1
-header.ZIndex = 2
-
-local title = Instance.new("TextLabel", header)
-title.Size = UDim2.new(1, -50, 1, 0)
-title.Position = UDim2.new(0, 16, 0, 0)
-title.BackgroundTransparency = 1
-title.Text = "EX COMMUNITY | STEAL AN EGG (V24 SAFE)"
-title.TextColor3 = THEME.text
-title.TextSize = 11
-title.Font = Enum.Font.GothamBold
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.ZIndex = 2
-
-local minBtn = Instance.new("TextButton", header)
-minBtn.Size = UDim2.new(0, 26, 0, 26)
-minBtn.Position = UDim2.new(1, -36, 0.5, -13)
-minBtn.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-minBtn.BackgroundTransparency = 0.2
-minBtn.Text = "—"
-minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-minBtn.Font = Enum.Font.GothamBold
-minBtn.ZIndex = 2
-Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
-
--- MINIMIZED ICON
-local minIcon = Instance.new("TextButton", sg)
-minIcon.Size = UDim2.new(0, 44, 0, 44)
-minIcon.Position = UDim2.new(0, 30, 0, 30)
-minIcon.BackgroundColor3 = THEME.bg1
-minIcon.BackgroundTransparency = 0.2
-minIcon.Text = "EX"
-minIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
-minIcon.TextSize = 13
-minIcon.Font = Enum.Font.GothamBold
-minIcon.Visible = false
-minIcon.Active = true
-minIcon.Draggable = true
-Instance.new("UICorner", minIcon).CornerRadius = UDim.new(0, 12)
-local iconStroke = Instance.new("UIStroke", minIcon)
-iconStroke.Color = THEME.accent
-iconStroke.Thickness = 2
-
-minBtn.MouseButton1Click:Connect(function() f.Visible = false; minIcon.Visible = true end)
-minIcon.MouseButton1Click:Connect(function() f.Visible = true; minIcon.Visible = false end)
-
--- SIDEBAR & HALAMAN
-local sidebar = Instance.new("Frame", f)
-sidebar.Size = UDim2.new(0, 120, 1, -41)
-sidebar.Position = UDim2.new(0, 0, 0, 41)
-sidebar.BackgroundTransparency = 1
-sidebar.ZIndex = 2
-
-local pageContainer = Instance.new("Frame", f)
-pageContainer.Size = UDim2.new(1, -125, 1, -45)
-pageContainer.Position = UDim2.new(0, 125, 0, 43)
-pageContainer.BackgroundTransparency = 1
-pageContainer.ZIndex = 2
-
-local tabs, pages = {}, {}
-local function createTab(name, yPos, isFirst)
-    local btn = Instance.new("TextButton", sidebar)
-    btn.Size = UDim2.new(1, -16, 0, 32)
-    btn.Position = UDim2.new(0, 8, 0, yPos)
-    btn.Text = name
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 10
-    btn.ZIndex = 2
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    
-    local page = Instance.new("ScrollingFrame", pageContainer)
-    page.Size = UDim2.new(1, -10, 1, -10)
-    page.BackgroundTransparency = 1
-    page.Visible = isFirst
-    page.CanvasSize = UDim2.new(0, 0, 0, 800)
-    page.ScrollBarThickness = 2
-    page.BorderSizePixel = 0
-    page.ZIndex = 2
-
-    btn.BackgroundColor3 = isFirst and THEME.accent or Color3.fromRGB(255, 255, 255)
-    btn.BackgroundTransparency = isFirst and 0.2 or 0.95
-    btn.TextColor3 = isFirst and Color3.fromRGB(255, 255, 255) or THEME.sub
-
-    table.insert(tabs, btn)
-    table.insert(pages, page)
-
-    btn.MouseButton1Click:Connect(function()
-        for i, t in pairs(tabs) do
-            t.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            t.BackgroundTransparency = 0.95
-            t.TextColor3 = THEME.sub
-            pages[i].Visible = false
-        end
-        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0.2, BackgroundColor3 = THEME.accent}):Play()
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        page.Visible = true
-    end)
-    return page
 end
 
-local pageMain = createTab("MAIN", 15, true)
-local pageConfig = createTab("CONFIG", 55, false)
+local function setStatus(text, color)
+    if ui.statusText then ui.statusText.Text = text end
+    if ui.statusDot then ui.statusDot.BackgroundColor3 = color or THEME.sub end
+end
 
--- ==========================================
-// HELPERKARAKTER & ANTI-CHEAT SAFE MOVEMENT
--- ==========================================
 local function getChar()
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -267,6 +236,21 @@ local function getChar()
     return hrp, hum, char
 end
 
+local function getHRP()
+    local hrp = getChar()
+    return hrp
+end
+
+local function ensureBase()
+    if not baseCFrame then
+        local hrp = getHRP()
+        if hrp then baseCFrame = hrp.CFrame + Vector3.new(0, 3, 0) end
+    end
+end
+
+-- ==========================================
+-- ANTI-CHEAT SAFE MOVEMENT & RAYCAST LANDING (ANTI TENGGELAM)
+-- ==========================================
 local function getGroundCFrame(targetCF)
     local pos = targetCF.Position
     local rayParams = RaycastParams.new()
@@ -280,16 +264,12 @@ local function getGroundCFrame(targetCF)
     return targetCF + Vector3.new(0, 3, 0)
 end
 
--- Gerak Aman Anti-Cheat (Tween + PlatformStand agar tidak ditendang server)
-local function goTo(hrp, hum, targetCF, alive)
+local function flyTo(hrp, hum, targetCF, speed, alive)
     local finalCF = getGroundCFrame(targetCF)
-    local startCF = hrp.CFrame
-    local dist = (startCF.Position - finalCF.Position).Magnitude
+    local dist = (hrp.Position - finalCF.Position).Magnitude
+    local dur = math.max(dist / speed, 0.05)
     
     if hum then hum.PlatformStand = true end
-    
-    local speed = config.flySpeed
-    local dur = math.max(dist / speed, 0.1)
     
     local tw = TweenService:Create(hrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = finalCF})
     local done = false
@@ -305,25 +285,62 @@ local function goTo(hrp, hum, targetCF, alive)
     
     if hum then hum.PlatformStand = false end
     hrp.CFrame = finalCF
-    task.wait(0.15)
+    return done
+end
+
+local function goTo(hrp, hum, targetPos, alive)
+    if config.method == "Instant" then
+        local finalCF = getGroundCFrame(CFrame.new(targetPos))
+        local tw = TweenService:Create(hrp, TweenInfo.new(0.08, Enum.EasingStyle.Linear), {CFrame = finalCF})
+        tw:Play()
+        tw.Completed:Wait()
+        return true
+    end
+    
+    local speed = config.flySpeed
+    local targetCF = CFrame.new(targetPos)
+    if (hrp.Position - targetPos).Magnitude < 15 then
+        return flyTo(hrp, hum, targetCF, speed, alive)
+    end
+    
+    local cruiseY = math.max(hrp.Position.Y, targetPos.Y) + config.flyHeight
+    if not flyTo(hrp, hum, CFrame.new(Vector3.new(hrp.Position.X, cruiseY, hrp.Position.Z)), speed, alive) then return false end
+    if not flyTo(hrp, hum, CFrame.new(Vector3.new(targetPos.X, cruiseY, targetPos.Z)), speed, alive) then return false end
+    return flyTo(hrp, hum, targetCF, speed, alive)
 end
 
 -- ==========================================
--- LOGIKA TARGET & MULTI-SELECT FILTER
+-- DETEKSI TELUR & MULTI-SELECT FILTER
 -- ==========================================
+local function isEggPrompt(p)
+    if not p:IsA("ProximityPrompt") then return false end
+    local name = p.Name:lower()
+    local action = (p.ActionText or ""):lower()
+    if name:find("carryareaegg", 1, true) then return true end
+    if action:find("carry", 1, true) or action:find("steal", 1, true) then return true end
+    return false
+end
+
 local function collectEggPrompts()
     local result = {}
-    local folder = Workspace:FindFirstChild("AreaEggSlotsClient")
     local function scan(root)
         for _, d in ipairs(root:GetDescendants()) do
-            if d:IsA("ProximityPrompt") and d.Name:lower() == "carryareaegg" then
-                table.insert(result, d)
-            end
+            if d:IsA("ProximityPrompt") and isEggPrompt(d) then table.insert(result, d) end
         end
     end
+    local folder = Workspace:FindFirstChild("AreaEggSlotsClient")
     if folder then scan(folder) end
     if #result == 0 then scan(Workspace) end
     return result
+end
+
+local function getPromptPosition(prompt)
+    local pos = prompt.Parent and prompt.Parent:IsA("BasePart") and prompt.Parent.Position or nil
+    if not pos and prompt.Parent then
+        local part = prompt.Parent:FindFirstChildWhichIsA("BasePart", true)
+        pos = part and part.Position
+    end
+    return pos
 end
 
 local function getEggRoot(prompt)
@@ -355,7 +372,6 @@ local function checkMultiFilters(root)
                 end
             end
         end
-        -- Jika kategori tersebut menyalakan filter, maka harus cocok dengan salah satunya (AND antar kategori, OR di dalam kategori)
         if hasAnyActive and not matchedAny then return false end
     end
     return true
@@ -364,13 +380,13 @@ end
 local function findTarget(hrp)
     local best, bestDist = nil, math.huge
     for _, prompt in ipairs(collectEggPrompts()) do
-        local part = prompt.Parent and (prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart"))
-        if part then
+        local pos = getPromptPosition(prompt)
+        if pos and prompt.Enabled then
             local root = getEggRoot(prompt)
             if checkMultiFilters(root) then
-                local d = (part.Position - hrp.Position).Magnitude
+                local d = (pos - hrp.Position).Magnitude
                 if d < bestDist then
-                    best, bestDist = part, d
+                    best = { prompt = prompt, pos = pos, dist = d, root = root }
                 end
             end
         end
@@ -378,65 +394,204 @@ local function findTarget(hrp)
     return best
 end
 
--- ==========================================
--- AUTO STEAL UTAMA
--- ==========================================
-local baseCFrame = nil
-local loopToken = 0
+local function isCarrying()
+    local char = player.Character
+    if not char then return false end
+    for _, d in ipairs(char:GetDescendants()) do
+        if d.Name:lower():find("egg", 1, true) then return true end
+    end
+    return false
+end
 
-local function startAutoStealLoop()
-    loopToken += 1
-    local myToken = loopToken
-    task.spawn(function()
-        while config.running and myToken == loopToken do
-            task.wait(0.3)
-            local hrp, hum = getChar()
-            if not hrp or not hum or hum.Health <= 0 then continue end
-
-            -- Teleport sebentar ke Forest agar map ter-load
-            hrp.CFrame = CFrame.new(597, 10, -324)
-            task.wait(0.4)
-
-            local part = findTarget(hrp)
-            if not part then task.wait(0.5); continue end
-
-            -- 1. Terbang ke telur secara mulus & aman
-            goTo(hrp, hum, part.CFrame * CFrame.new(0, 3, 0), function() return config.running and myToken == loopToken end)
-            task.wait(0.3)
-
-            -- 2. Ambil telur
-            local prompt = nil
-            for _, p in ipairs(Workspace:GetDescendants()) do
-                if p:IsA("ProximityPrompt") and p.Name:lower() == "carryareaegg" then
-                    local pPart = p.Parent and (p.Parent:IsA("BasePart") and p.Parent or p.Parent:FindFirstChildWhichIsA("BasePart"))
-                    if pPart and (pPart.Position - part.Position).Magnitude < 15 then
-                        prompt = p; break
-                    end
-                end
-            end
-
-            if prompt then
-                prompt.HoldDuration = 0
-                pcall(fireproximityprompt, prompt)
-            end
-            task.wait(0.5)
-
-            -- 3. Pulang ke Base dengan aman (Anti tenggelam)
-            if baseCFrame and config.running and myToken == loopToken then
-                goTo(hrp, hum, baseCFrame, function() return config.running and myToken == loopToken end)
-                task.wait(0.6)
-            end
-        end
+local function triggerPrompt(prompt)
+    pcall(function()
+        prompt.HoldDuration = 0
+        prompt.RequiresLineOfSight = false
+        prompt.MaxActivationDistance = 30
     end)
+    if typeof(fireproximityprompt) == "function" then
+        pcall(fireproximityprompt, prompt)
+    end
+end
+
+local function stealCycle(alive)
+    local hrp, hum = getChar()
+    if not hrp or not hum or hum.Health <= 0 then task.wait(1); return "none" end
+    ensureBase()
+
+    setStatus("Mencari telur...", THEME.accent2)
+    local target = findTarget(hrp)
+    if not target then
+        -- Kunjungi area jika tidak ada target
+        hrp.CFrame = CFrame.new(597, 10, -324)
+        task.wait(0.5)
+        target = findTarget(hrp)
+    end
+    if not alive() then return "none" end
+    if not target then task.wait(0.5); return "none" end
+
+    setStatus("Terbang ke telur...", THEME.accent2)
+    goTo(hrp, hum, target.pos, alive)
+    if not alive() then return "none" end
+    task.wait(0.2)
+
+    if target.prompt.Parent and not target.prompt.Enabled then
+        pcall(function() target.prompt.Enabled = true end)
+    end
+
+    setStatus("Mengambil telur...", THEME.accent)
+    for _ = 1, 3 do
+        if not alive() then return "none" end
+        if not target.prompt.Parent then break end
+        triggerPrompt(target.prompt)
+        task.wait(0.3)
+        if isCarrying() or not target.prompt.Parent then break end
+    end
+
+    stats.stolen += 1
+    log("Telur berhasil diambil secara aman")
+
+    if baseCFrame and alive() then
+        setStatus("Pulang ke base...", THEME.good)
+        goTo(hrp, hum, baseCFrame.Position, alive)
+        task.wait(0.5)
+    end
+    return "stolen"
 end
 
 -- ==========================================
--- PEMBUATAN UI TAB MAIN
+-- PEMBUATAN UI & MENU LENGKAP
 -- ==========================================
-local mainList = Instance.new("UIListLayout", pageMain)
-mainList.SortOrder = Enum.SortOrder.LayoutOrder
-mainList.Padding = UDim.new(0, 8)
+sg = Instance.new("ScreenGui")
+sg.Name = "EX_StealAnEgg_V24"
+sg.ResetOnSpawn = false
+sg.Parent = playerGui
 
+local f = Instance.new("Frame", sg)
+f.Size = UDim2.new(0, 540, 0, 360)
+f.Position = UDim2.new(0.5, -270, 0.5, -180)
+f.BackgroundColor3 = THEME.bg1
+f.BackgroundTransparency = 0.25
+f.Active = true
+f.Draggable = true
+f.ClipsDescendants = true
+Instance.new("UICorner", f).CornerRadius = UDim.new(0, 10)
+
+local bgStroke = Instance.new("UIStroke", f)
+bgStroke.Color = Color3.fromRGB(255, 255, 255)
+bgStroke.Thickness = 2
+local strokeGrad = Instance.new("UIGradient", bgStroke)
+strokeGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, THEME.accent),
+    ColorSequenceKeypoint.new(0.5, THEME.accent2),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 80, 200))
+})
+RunService.RenderStepped:Connect(function(dt)
+    if sg.Parent then strokeGrad.Rotation = (strokeGrad.Rotation + (dt * 50)) % 360 end
+end)
+
+-- Header
+local header = Instance.new("Frame", f)
+header.Size = UDim2.new(1, 0, 0, 40)
+header.BackgroundTransparency = 1
+header.ZIndex = 2
+
+local title = Instance.new("TextLabel", header)
+title.Size = UDim2.new(1, -50, 1, 0)
+title.Position = UDim2.new(0, 16, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "EX COMMUNITY | STEAL AN EGG (V24 COMPLETE)"
+title.TextColor3 = THEME.text
+title.TextSize = 11
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = 2
+
+local minBtn = Instance.new("TextButton", header)
+minBtn.Size = UDim2.new(0, 26, 0, 26)
+minBtn.Position = UDim2.new(1, -36, 0.5, -13)
+minBtn.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+minBtn.BackgroundTransparency = 0.2
+minBtn.Text = "—"
+minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minBtn.Font = Enum.Font.GothamBold
+minBtn.ZIndex = 2
+Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
+
+local minIcon = Instance.new("TextButton", sg)
+minIcon.Size = UDim2.new(0, 44, 0, 44)
+minIcon.Position = UDim2.new(0, 30, 0, 30)
+minIcon.BackgroundColor3 = THEME.bg1
+minIcon.BackgroundTransparency = 0.2
+minIcon.Text = "EX"
+minIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+minIcon.TextSize = 13
+minIcon.Font = Enum.Font.GothamBold
+minIcon.Visible = false
+minIcon.Active = true
+minIcon.Draggable = true
+Instance.new("UICorner", minIcon).CornerRadius = UDim.new(0, 12)
+
+minBtn.MouseButton1Click:Connect(function() f.Visible = false; minIcon.Visible = true end)
+minIcon.MouseButton1Click:Connect(function() f.Visible = true; minIcon.Visible = false end)
+
+local sidebar = Instance.new("Frame", f)
+sidebar.Size = UDim2.new(0, 120, 1, -41)
+sidebar.Position = UDim2.new(0, 0, 0, 41)
+sidebar.BackgroundTransparency = 1
+sidebar.ZIndex = 2
+
+local pageContainer = Instance.new("Frame", f)
+pageContainer.Size = UDim2.new(1, -125, 1, -45)
+pageContainer.Position = UDim2.new(0, 125, 0, 43)
+pageContainer.BackgroundTransparency = 1
+pageContainer.ZIndex = 2
+
+local tabs, pages = {}, {}
+local function createTab(name, yPos, isFirst)
+    local btn = Instance.new("TextButton", sidebar)
+    btn.Size = UDim2.new(1, -16, 0, 32)
+    btn.Position = UDim2.new(0, 8, 0, yPos)
+    btn.Text = name
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 10
+    btn.ZIndex = 2
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    
+    local page = Instance.new("ScrollingFrame", pageContainer)
+    page.Size = UDim2.new(1, -10, 1, -10)
+    page.BackgroundTransparency = 1
+    page.Visible = isFirst
+    page.CanvasSize = UDim2.new(0, 0, 0, 900)
+    page.ScrollBarThickness = 2
+    page.BorderSizePixel = 0
+    page.ZIndex = 2
+
+    btn.BackgroundColor3 = isFirst and THEME.accent or Color3.fromRGB(255, 255, 255)
+    btn.BackgroundTransparency = isFirst and 0.2 or 0.95
+    btn.TextColor3 = isFirst and Color3.fromRGB(255, 255, 255) or THEME.sub
+
+    table.insert(tabs, btn)
+    table.insert(pages, page)
+
+    btn.MouseButton1Click:Connect(function()
+        for i, t in pairs(tabs) do
+            t.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            t.BackgroundTransparency = 0.95
+            t.TextColor3 = THEME.sub
+            pages[i].Visible = false
+        end
+        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0.2, BackgroundColor3 = THEME.accent}):Play()
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        page.Visible = true
+    end)
+    return page
+end
+
+local pageMain = createTab("MAIN", 15, true)
+local pageConfig = createTab("CONFIG", 55, false)
+
+-- Helper Toggle UI
 local function createToggle(parent, text, default, cb)
     local fHolder = Instance.new("Frame", parent)
     fHolder.Size = UDim2.new(1, 0, 0, 34)
@@ -482,18 +637,33 @@ local function createToggle(parent, text, default, cb)
     return fHolder
 end
 
-createToggle(pageMain, "Auto Steal (Start from Safe Zone)", false, function(st)
+-- ==========================================
+-- TAB MAIN CONTENT
+-- ==========================================
+local mainList = Instance.new("UIListLayout", pageMain)
+mainList.SortOrder = Enum.SortOrder.LayoutOrder
+mainList.Padding = UDim.new(0, 8)
+
+local loopToken = 0
+createToggle(pageMain, "Auto Steal (Safe Zone)", false, function(st)
     config.running = st
     if config.running then
         local hrp = getChar()
         if hrp then baseCFrame = hrp.CFrame + Vector3.new(0, 3, 0) end
-        startAutoStealLoop()
+        loopToken += 1
+        local myToken = loopToken
+        task.spawn(function()
+            while config.running and myToken == loopToken do
+                stealCycle(function() return config.running and myToken == loopToken end)
+                task.wait(0.4)
+            end
+        end)
     else
         loopToken += 1
     end
 end)
 
--- Target Mode Selection
+-- Target Mode Selector
 local sub = Instance.new("Frame", pageMain)
 sub.Size = UDim2.new(1, 0, 0, 65)
 sub.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -541,7 +711,7 @@ bFil.MouseButton1Click:Connect(function()
     bAll.BackgroundColor3 = Color3.fromRGB(30, 15, 48); bAll.BackgroundTransparency = 0.5; bAll.TextColor3 = THEME.sub; bAll.Font = Enum.Font.GothamMedium
 end)
 
--- Expandable Multi-Select Filter Menu
+-- Multi-Select Filter Menu
 local btnF = Instance.new("TextButton", pageMain)
 btnF.Size = UDim2.new(1, 0, 0, 32)
 btnF.Text = "▼ MULTI-SELECT FILTER EGG"
@@ -611,7 +781,6 @@ local function addMultiCat(name, catKey, opts)
         sk.Transparency = config.filters[catKey][opt] and 0 or 1
 
         ob.MouseButton1Click:Connect(function()
-            -- Toggle multi-select
             config.filters[catKey][opt] = not config.filters[catKey][opt]
             local active = config.filters[catKey][opt]
             sk.Transparency = active and 0 or 1
@@ -638,7 +807,7 @@ btnF.MouseButton1Click:Connect(function()
 end)
 
 -- ==========================================
--- PEMBUATAN UI TAB CONFIG
+-- TAB CONFIG CONTENT (AUTO-SAVE 2S & SAVE NOW)
 -- ==========================================
 local configList = Instance.new("UIListLayout", pageConfig)
 configList.SortOrder = Enum.SortOrder.LayoutOrder
@@ -648,7 +817,6 @@ createToggle(pageConfig, "Auto Save Config (Every 2s)", config.autoSave, functio
     config.autoSave = st
 end)
 
--- Tombol Save Now
 local saveNowBtn = Instance.new("TextButton", pageConfig)
 saveNowBtn.Size = UDim2.new(1, 0, 0, 36)
 saveNowBtn.Text = "💾 SAVE CONFIG NOW"
@@ -667,3 +835,5 @@ saveNowBtn.MouseButton1Click:Connect(function()
         saveNowBtn.Text = "💾 SAVE CONFIG NOW"
     end)
 end)
+
+log("EX Steal an Egg V24 Complete & Safe berhasil dimuat!")
