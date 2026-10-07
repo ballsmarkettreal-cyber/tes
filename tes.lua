@@ -1,13 +1,9 @@
-local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
-local folder = Workspace:FindFirstChild("AreaEggSlotsClient")
-
-if not folder then
-    warn("AreaEggSlotsClient tidak ditemukan")
-    return
-end
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
 
 local out = {}
 
@@ -15,131 +11,77 @@ local function add(x)
     table.insert(out, tostring(x))
 end
 
-local function ignore(k)
-    k = string.lower(tostring(k))
-    return k:find("oldid")
-        or k:find("dontmodify")
-        or k:find("reimport")
-end
+local function dumpObject(obj, indent)
+    indent = indent or ""
 
-local function collect(model)
-    local data = {}
+    add(indent .. obj:GetFullName() .. " [" .. obj.ClassName .. "]")
 
-    local function put(key, value)
-        if not ignore(key) then
-            data[key] = tostring(value)
-        end
+    -- Attributes
+    for k, v in pairs(obj:GetAttributes()) do
+        add(indent .. "  ATTR: " .. k .. " = " .. tostring(v))
     end
 
-    -- Attribute model + descendant
-    for _, obj in ipairs(model:GetDescendants()) do
-        for k, v in pairs(obj:GetAttributes()) do
-            put(obj.Name .. ".ATTR." .. k, v)
-        end
-
-        if obj:IsA("ValueBase") then
-            put(obj.Name .. ".VALUE", obj.Value)
-        end
+    -- ValueBase
+    if obj:IsA("ValueBase") then
+        add(indent .. "  VALUE: " .. obj.Name .. " = " .. tostring(obj.Value))
     end
 
-    for k, v in pairs(model:GetAttributes()) do
-        put("MODEL.ATTR." .. k, v)
-    end
-
-    -- Prompt info
-    for _, obj in ipairs(model:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then
-            put("PROMPT.ObjectText", obj.ObjectText)
-            put("PROMPT.ActionText", obj.ActionText)
-            put("PROMPT.HoldDuration", obj.HoldDuration)
-        end
-    end
-
-    -- Bounding
-    local ok, _, size = pcall(function()
-        return model:GetBoundingBox()
-    end)
-
-    if ok then
-        put("BOUNDING.X", string.format("%.3f", size.X))
-        put("BOUNDING.Y", string.format("%.3f", size.Y))
-        put("BOUNDING.Z", string.format("%.3f", size.Z))
-    end
-
-    return data
-end
-
-local eggs = {}
-
-for _, model in ipairs(folder:GetChildren()) do
-    if model:IsA("Model") then
-        table.insert(eggs, {
-            model = model,
-            data = collect(model)
-        })
+    -- Prompt
+    if obj:IsA("ProximityPrompt") then
+        add(indent .. "  ACTION: " .. obj.ActionText)
+        add(indent .. "  OBJECT: " .. obj.ObjectText)
+        add(indent .. "  HOLD: " .. tostring(obj.HoldDuration))
+        add(indent .. "  DIST: " .. tostring(obj.MaxActivationDistance))
     end
 end
 
-add("===== EGG DIFFERENCE SCAN =====")
-add("TOTAL EGG: " .. #eggs)
+add("===== CARRY AREA EGG INSPECTOR =====")
 add("")
 
--- Tampilkan identitas setiap egg
-for i, egg in ipairs(eggs) do
-    local source = egg.model:GetAttribute("PreparedSourceName")
+local found = 0
 
-    add(
-        "#" .. i ..
-        " | " ..
-        egg.model.Name ..
-        " | SOURCE=" ..
-        tostring(source or "-")
-    )
-end
+for _, prompt in ipairs(Workspace:GetDescendants()) do
+    if prompt:IsA("ProximityPrompt")
+        and prompt.Name == "CarryAreaEgg" then
 
-add("")
-add("===== FIELD DIFFERENCES =====")
+        local part = prompt.Parent
 
--- Kumpulkan semua key
-local keys = {}
+        if part and part:IsA("BasePart") then
+            local distance = (part.Position - hrp.Position).Magnitude
 
-for _, egg in ipairs(eggs) do
-    for key in pairs(egg.data) do
-        keys[key] = true
-    end
-end
+            if distance <= 40 then
+                found += 1
 
--- Hanya tampilkan field yang nilainya berbeda
-for key in pairs(keys) do
+                add("===== PROMPT #" .. found .. " =====")
+                add("DISTANCE: " .. string.format("%.2f", distance))
+                add("")
 
-    local values = {}
-    local different = false
-    local firstValue = nil
+                -- Naik beberapa parent dari prompt
+                local current = prompt
 
-    for i, egg in ipairs(eggs) do
-        local value = egg.data[key] or "<nil>"
+                for level = 0, 6 do
+                    if not current then break end
 
-        values[i] = value
+                    add("----- LEVEL " .. level .. " -----")
+                    dumpObject(current, "")
 
-        if firstValue == nil then
-            firstValue = value
-        elseif value ~= firstValue then
-            different = true
-        end
-    end
+                    current = current.Parent
+                end
 
-    if different then
-        add("")
-        add("FIELD: " .. key)
+                add("")
+                add("----- CHILDREN OF PROMPT PARENT -----")
 
-        for i, value in ipairs(values) do
-            add("  #" .. i .. " = " .. value)
+                for _, child in ipairs(part.Parent:GetChildren()) do
+                    dumpObject(child, "  ")
+                end
+
+                add("")
+            end
         end
     end
 end
 
-add("")
-add("===== END =====")
+add("===== TOTAL PROMPT: " .. found .. " =====")
 
 local result = table.concat(out, "\n")
 
@@ -151,14 +93,13 @@ end)
 
 print(result)
 
--- GUI
-local old = player.PlayerGui:FindFirstChild("EggDifferenceScan")
+local old = player.PlayerGui:FindFirstChild("CarryEggInspector")
 if old then
     old:Destroy()
 end
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "EggDifferenceScan"
+gui.Name = "CarryEggInspector"
 gui.ResetOnSpawn = false
 gui.Parent = player.PlayerGui
 
