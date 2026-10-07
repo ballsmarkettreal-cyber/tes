@@ -13,7 +13,7 @@ for _, v in pairs(gui:GetChildren()) do
 end
 
 local sg = Instance.new("ScreenGui")
-sg.Name = "EX_StealAnEgg_V21_Ultimate"
+sg.Name = "EX_StealAnEgg_V21_SafeFlight"
 sg.ResetOnSpawn = false
 sg.Parent = gui
 
@@ -24,7 +24,7 @@ whiteScreen.Visible = false
 whiteScreen.ZIndex = -10
 
 -- ==========================================
--- UI UTAMA (TRANSPARAN + BINTANG JATUH TEBAL)
+-- UI UTAMA (TRANSPARAN + BINTANG JATUH RAPI)
 -- ==========================================
 local f = Instance.new("Frame", sg)
 f.Size = UDim2.new(0, 520, 0, 340)
@@ -60,7 +60,7 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- ANIMASI BINTANG JATUH (LEBIH TEBAL & GLOWING)
+-- ANIMASI BINTANG JATUH
 local starContainer = Instance.new("Frame", f)
 starContainer.Size = UDim2.new(1, 0, 1, 0)
 starContainer.BackgroundTransparency = 1
@@ -70,35 +70,34 @@ starContainer.ClipsDescendants = true
 task.spawn(function()
     local rng = Random.new()
     while f.Parent do
-        task.wait(rng:NextNumber(0.2, 0.5))
+        task.wait(rng:NextNumber(0.2, 0.4))
         local star = Instance.new("Frame", starContainer)
-        -- Ukuran dibuat lebih tebal (3-6px) dan panjang (60-140px)
-        star.Size = UDim2.new(0, rng:NextInteger(60, 140), 0, rng:NextInteger(3, 6))
+        star.Size = UDim2.new(0, rng:NextInteger(80, 150), 0, rng:NextInteger(3, 5))
         star.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        star.Rotation = 45
+        star.Rotation = 35
         
-        local startX = rng:NextNumber(-0.2, 1.2)
+        local startX = rng:NextNumber(-0.3, 0.6)
         star.Position = UDim2.new(startX, 0, -0.2, 0)
         
         local grad = Instance.new("UIGradient", star)
         grad.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(0.3, Color3.fromRGB(180, 100, 255)),
+            ColorSequenceKeypoint.new(0.2, Color3.fromRGB(200, 150, 255)),
             ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 30, 210))
         })
         grad.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(0.7, 0.2),
+            NumberSequenceKeypoint.new(0.6, 0.1),
             NumberSequenceKeypoint.new(1, 1)
         })
         
         local corner = Instance.new("UICorner", star)
         corner.CornerRadius = UDim.new(1, 0)
         
-        local duration = rng:NextNumber(0.8, 1.6)
-        local endX = startX - rng:NextNumber(0.5, 0.9)
+        local duration = rng:NextNumber(0.8, 1.4)
+        local endX = startX + rng:NextNumber(0.4, 0.8)
         
-        local tween = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        local tween = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
             Position = UDim2.new(endX, 0, 1.2, 0)
         })
         tween:Play()
@@ -116,7 +115,7 @@ local title = Instance.new("TextLabel", header)
 title.Size = UDim2.new(1, -60, 1, 0)
 title.Position = UDim2.new(0, 16, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "EX COMMUNITY  |  STEAL AN EGG (V21 ULTIMATE)"
+title.Text = "EX COMMUNITY  |  STEAL AN EGG (V21 SAFE)"
 title.TextColor3 = Color3.fromRGB(240, 240, 255)
 title.TextSize = 11
 title.Font = Enum.Font.GothamBold
@@ -283,7 +282,7 @@ local function createToggle(parent, text, cb)
 end
 
 -- ==========================================
--- LOGIKA FILTER & AUTO STEAL
+-- LOGIKA FILTER & AUTO STEAL (SAFE HEIGHT)
 -- ==========================================
 local loopToken = 0
 
@@ -356,20 +355,21 @@ end
 local function goTo(hrp, targetCF)
     if config.method == "Fly" then
         local dist = (hrp.Position - targetCF.Position).Magnitude
-        if dist > 20 then
-            local upHeight = math.clamp(dist / 2, 30, 150)
-            local t1 = TweenService:Create(hrp, TweenInfo.new(0.2, Enum.EasingStyle.Linear), {CFrame = hrp.CFrame + Vector3.new(0, upHeight, 0)})
-            t1:Play() task.wait(0.2)
+        if dist > 15 then
+            -- KETINGGIAN AMAN (Hanya naik 12-15 stud saja agar tidak kena kill-brick langit)
+            local upHeight = 12 
+            local t1 = TweenService:Create(hrp, TweenInfo.new(0.15, Enum.EasingStyle.Linear), {CFrame = hrp.CFrame + Vector3.new(0, upHeight, 0)})
+            t1:Play() task.wait(0.15)
             
-            local dur = dist / 90
+            local dur = dist / 80
             local t2 = TweenService:Create(hrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = targetCF + Vector3.new(0, upHeight, 0)})
             t2:Play() task.wait(dur)
         end
-        local t3 = TweenService:Create(hrp, TweenInfo.new(0.2, Enum.EasingStyle.Linear), {CFrame = targetCF})
-        t3:Play() task.wait(0.2)
+        local t3 = TweenService:Create(hrp, TweenInfo.new(0.15, Enum.EasingStyle.Linear), {CFrame = targetCF})
+        t3:Play() task.wait(0.15)
     else
         hrp.CFrame = targetCF
-        task.wait(0.2)
+        task.wait(0.15)
     end
 end
 
@@ -384,15 +384,19 @@ function startAutoStealLoop()
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             if not hrp or not hum or hum.Health <= 0 then continue end
 
+            -- Teleport sebentar ke Forest agar map ter-load
+            hrp.CFrame = CFrame.new(597, 10, -324)
+            task.wait(0.3)
+
             local part = findGuardEgg(hrp)
             if not part then 
                 task.wait(0.5) 
                 continue 
             end
 
-            -- 1. Terbang ke Area Telur
+            -- 1. Terbang dengan ketinggian rendah/aman ke telur
             goTo(hrp, part.CFrame * CFrame.new(0, 3, 0))
-            task.wait(0.4) 
+            task.wait(0.3) 
             
             -- 2. Cari ProximityPrompt lalu ambil telurnya
             local prompt = nil
@@ -410,9 +414,9 @@ function startAutoStealLoop()
                 pcall(fireproximityprompt, prompt)
             end
             
-            task.wait(0.6)
+            task.wait(0.5)
 
-            -- 3. Pulang ke Base Asli (Zona Aman) yang dicatat saat tombol ditekan
+            -- 3. Pulang dengan aman ke Base Asli
             if baseCFrame and config.running and myToken == loopToken then
                 goTo(hrp, baseCFrame)
                 task.wait(0.6)
@@ -437,7 +441,6 @@ createToggle(pageMain, "Auto Steal (Start from Safe Zone)", function(st)
     if config.running then
         local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         if hrp then 
-            -- Rekam posisi Safe Zone saat tombol dinyalakan
             baseCFrame = hrp.CFrame + Vector3.new(0, 3, 0) 
         end
         startAutoStealLoop()
@@ -502,7 +505,7 @@ bFil.MouseButton1Click:Connect(function()
     bAll.BackgroundColor3 = Color3.fromRGB(30, 15, 48)
     bAll.BackgroundTransparency = 0.5
     bAll.TextColor3 = Color3.fromRGB(170, 140, 210)
-    bAll.Font = Enum.Font.GothamMedium
+    bFil.Font = Enum.Font.GothamMedium
 end)
 
 local btnF = Instance.new("TextButton", pageMain)
