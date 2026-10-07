@@ -1,5 +1,5 @@
-local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
 local folder = Workspace:FindFirstChild("AreaEggSlotsClient")
@@ -11,11 +11,11 @@ end
 
 local out = {}
 
-local function add(s)
-    table.insert(out, s)
+local function add(x)
+    table.insert(out, tostring(x))
 end
 
-local function hasInterestingText(s)
+local function interesting(s)
     s = string.lower(tostring(s))
 
     return
@@ -23,119 +23,100 @@ local function hasInterestingText(s)
         s:find("rarity") or
         s:find("variant") or
         s:find("size") or
+        s:find("scale") or
+        s:find("weight") or
+        s:find("type") or
+        s:find("mutation") or
         s:find("gold") or
         s:find("rainbow") or
         s:find("giant") or
         s:find("large") or
         s:find("medium") or
-        s:find("small") or
-        s:find("divine") or
-        s:find("mythic") or
-        s:find("legend")
+        s:find("small")
 end
 
-local function interestingAttributes(inst)
-    local result = {}
-
-    for key, value in pairs(inst:GetAttributes()) do
-        local str = key .. "=" .. tostring(value)
-
-        -- Abaikan metadata Blender/import yang tidak berguna
-        local low = string.lower(str)
-
-        if not (
-            low:find("oldid") or
-            low:find("dontmodify") or
-            low:find("reimport")
-        ) then
-            table.insert(result, str)
-        end
-    end
-
-    return result
-end
-
-add("===== EGG QUICK SCAN =====")
+add("===== EGG DATA CHECK =====")
 add("")
 
-local count = 0
+local total = 0
 
 for _, model in ipairs(folder:GetChildren()) do
     if model:IsA("Model") then
 
-        local attrs = interestingAttributes(model)
-        local source = model:GetAttribute("PreparedSourceName")
+        local found = {}
 
-        local clues = {}
+        -- Attribute model + semua descendant
+        for _, obj in ipairs(model:GetDescendants()) do
 
-        -- Attribute model
-        for _, a in ipairs(attrs) do
-            table.insert(clues, a)
-        end
+            for key, value in pairs(obj:GetAttributes()) do
+                local line = obj:GetFullName()
+                    .. " | ATTR "
+                    .. key
+                    .. "="
+                    .. tostring(value)
 
-        -- Cari attribute penting di descendant
-        for _, d in ipairs(model:GetDescendants()) do
-            for key, value in pairs(d:GetAttributes()) do
-                local str = key .. "=" .. tostring(value)
-                local low = string.lower(str)
-
-                if not (
-                    low:find("oldid") or
-                    low:find("dontmodify") or
-                    low:find("reimport")
-                ) then
-                    table.insert(clues, d.Name .. "." .. str)
+                if interesting(key) or interesting(value) then
+                    table.insert(found, line)
                 end
             end
-        end
 
-        -- Cari nama object yang berpotensi menjadi petunjuk
-        local names = {}
+            -- ValueBase
+            if obj:IsA("ValueBase") then
+                local line = obj:GetFullName()
+                    .. " | VALUE "
+                    .. obj.Name
+                    .. "="
+                    .. tostring(obj.Value)
 
-        for _, d in ipairs(model:GetDescendants()) do
-            local n = string.lower(d.Name)
-
-            if hasInterestingText(n) then
-                table.insert(names, d.Name)
+                if interesting(obj.Name) or interesting(obj.Value) then
+                    table.insert(found, line)
+                end
             end
 
-            if d:IsA("ParticleEmitter") then
-                table.insert(names, d.Name .. "[Particle]")
+            -- Object/part/model name
+            if interesting(obj.Name) then
+                table.insert(
+                    found,
+                    obj:GetFullName() .. " | NAME"
+                )
             end
         end
 
-        -- Bounding box
-        local sizeText = "-"
-
-        local ok, cf, size = pcall(function()
-            return model:GetBoundingBox()
-        end)
-
-        if ok then
-            sizeText = string.format(
-                "%.2f x %.2f x %.2f",
-                size.X,
-                size.Y,
-                size.Z
-            )
+        -- Attribute model itu sendiri
+        for key, value in pairs(model:GetAttributes()) do
+            if interesting(key) or interesting(value) then
+                table.insert(
+                    found,
+                    model:GetFullName()
+                    .. " | MODEL_ATTR "
+                    .. key
+                    .. "="
+                    .. tostring(value)
+                )
+            end
         end
 
-        -- Hanya tampilkan model yang punya petunjuk
-        if source or #clues > 0 or #names > 0 then
+        if #found > 0 then
+            total += 1
 
-            count += 1
+            add("===== EGG #" .. total .. " =====")
+            add("MODEL: " .. model:GetFullName())
 
-            add("EGG #" .. count)
-            add("Source: " .. tostring(source or "-"))
-            add("Model: " .. model.Name)
-            add("Bounding: " .. sizeText)
+            local ok, _, size = pcall(function()
+                return model:GetBoundingBox()
+            end)
 
-            if #clues > 0 then
-                add("Attrs: " .. table.concat(clues, " | "))
+            if ok then
+                add(string.format(
+                    "BOUNDING: %.2f x %.2f x %.2f",
+                    size.X,
+                    size.Y,
+                    size.Z
+                ))
             end
 
-            if #names > 0 then
-                add("Clues: " .. table.concat(names, ", "))
+            for _, line in ipairs(found) do
+                add(line)
             end
 
             add("")
@@ -143,54 +124,28 @@ for _, model in ipairs(folder:GetChildren()) do
     end
 end
 
-add("===== TOTAL: " .. count .. " =====")
+add("===== TOTAL MATCH: " .. total .. " =====")
 
-local text = table.concat(out, "\n")
+local result = table.concat(out, "\n")
 
 pcall(function()
     if setclipboard then
-        setclipboard(text)
+        setclipboard(result)
     end
 end)
 
-local old = player.PlayerGui:FindFirstChild("EggQuickScan")
+print(result)
+
+local old = player.PlayerGui:FindFirstChild("EggDataCheck")
 if old then
     old:Destroy()
 end
 
-local sg = Instance.new("ScreenGui")
-sg.Name = "EggQuickScan"
-sg.ResetOnSpawn = false
-sg.Parent = player.PlayerGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "EggDataCheck"
+gui.ResetOnSpawn = false
+gui.Parent = player.PlayerGui
 
-local sf = Instance.new("ScrollingFrame")
-sf.Parent = sg
-sf.Size = UDim2.new(0.92, 0, 0.72, 0)
-sf.Position = UDim2.new(0.04, 0, 0.14, 0)
-sf.BackgroundColor3 = Color3.new(0, 0, 0)
-sf.BackgroundTransparency = 0.1
-sf.ScrollBarThickness = 7
-sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
-
-local lbl = Instance.new("TextLabel")
-lbl.Parent = sf
-lbl.Size = UDim2.new(1, -10, 0, 0)
-lbl.AutomaticSize = Enum.AutomaticSize.Y
-lbl.BackgroundTransparency = 1
-lbl.TextColor3 = Color3.new(1, 1, 1)
-lbl.Font = Enum.Font.Code
-lbl.TextSize = 12
-lbl.TextWrapped = true
-lbl.TextXAlignment = Enum.TextXAlignment.Left
-lbl.TextYAlignment = Enum.TextYAlignment.Top
-lbl.Text = text
-
-local close = Instance.new("TextButton")
-close.Parent = sg
-close.Size = UDim2.new(0, 45, 0, 30)
-close.Position = UDim2.new(0.95, -45, 0.14, -35)
-close.Text = "X"
-
-close.MouseButton1Click:Connect(function()
-    sg:Destroy()
-end)
+local frame = Instance.new("ScrollingFrame")
+frame.Parent = gui
+frame.Size = UDim2.new(0.94, 0, 
