@@ -2,7 +2,6 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-local RS = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local gui = player:WaitForChild("PlayerGui")
 
@@ -25,7 +24,7 @@ whiteScreen.Visible = false
 whiteScreen.ZIndex = -10
 
 -- ==========================================
--- UI UTAMA (TRANSPARAN + BINTANG JATUH)
+-- UI UTAMA (TRANSPARAN + BINTANG JATUH TEBAL)
 -- ==========================================
 local f = Instance.new("Frame", sg)
 f.Size = UDim2.new(0, 520, 0, 340)
@@ -61,7 +60,7 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- ANIMASI BINTANG JATUH (SHOOTING STARS)
+-- ANIMASI BINTANG JATUH (LEBIH TEBAL & GLOWING)
 local starContainer = Instance.new("Frame", f)
 starContainer.Size = UDim2.new(1, 0, 1, 0)
 starContainer.BackgroundTransparency = 1
@@ -71,29 +70,35 @@ starContainer.ClipsDescendants = true
 task.spawn(function()
     local rng = Random.new()
     while f.Parent do
-        task.wait(rng:NextNumber(0.15, 0.4))
+        task.wait(rng:NextNumber(0.2, 0.5))
         local star = Instance.new("Frame", starContainer)
-        star.Size = UDim2.new(0, rng:NextInteger(20, 70), 0, rng:NextInteger(1, 2))
+        -- Ukuran dibuat lebih tebal (3-6px) dan panjang (60-140px)
+        star.Size = UDim2.new(0, rng:NextInteger(60, 140), 0, rng:NextInteger(3, 6))
         star.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         star.Rotation = 45
         
-        local startX = rng:NextNumber(-0.1, 1.2)
+        local startX = rng:NextNumber(-0.2, 1.2)
         star.Position = UDim2.new(startX, 0, -0.2, 0)
         
         local grad = Instance.new("UIGradient", star)
         grad.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.3, Color3.fromRGB(180, 100, 255)),
             ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 30, 210))
         })
         grad.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(0.7, 0.2),
             NumberSequenceKeypoint.new(1, 1)
         })
         
-        local duration = rng:NextNumber(0.8, 2)
-        local endX = startX - rng:NextNumber(0.4, 0.8)
+        local corner = Instance.new("UICorner", star)
+        corner.CornerRadius = UDim.new(1, 0)
         
-        local tween = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+        local duration = rng:NextNumber(0.8, 1.6)
+        local endX = startX - rng:NextNumber(0.5, 0.9)
+        
+        local tween = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             Position = UDim2.new(endX, 0, 1.2, 0)
         })
         tween:Play()
@@ -278,16 +283,9 @@ local function createToggle(parent, text, cb)
 end
 
 -- ==========================================
--- GABUNGAN: LOGIKA FILTER EGG FIX BUGS 
+-- LOGIKA FILTER & AUTO STEAL
 -- ==========================================
 local loopToken = 0
-
-local function toPart(inst)
-    if not inst then return nil end
-    if inst:IsA("BasePart") then return inst end
-    if inst:IsA("Model") then return inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true) end
-    return inst:FindFirstAncestorWhichIsA("BasePart") or (inst.Parent and inst.Parent:FindFirstChildWhichIsA("BasePart", true))
-end
 
 local function isPlayerOwned(inst)
     local myName = player.Name:lower()
@@ -329,7 +327,6 @@ local function checkEggDataMatch(eggModel, filterKey)
     return false
 end
 
--- FIX 1: Cari dari dalam Folder "AreaEggSlotsClient" secara langsung agar mendeteksi telur meski jarak sangat jauh.
 local function findGuardEgg(hrp)
     local bestPart, bestDist = nil, math.huge
     local eggFolder = Workspace:FindFirstChild("AreaEggSlotsClient")
@@ -353,18 +350,14 @@ local function findGuardEgg(hrp)
             end
         end
     end
-    
     return bestPart
 end
 
--- FIX 2: Arc Flight (Terbang Melengkung menghindari Tembok/Border)
 local function goTo(hrp, targetCF)
     if config.method == "Fly" then
         local dist = (hrp.Position - targetCF.Position).Magnitude
-        
         if dist > 20 then
             local upHeight = math.clamp(dist / 2, 30, 150)
-            
             local t1 = TweenService:Create(hrp, TweenInfo.new(0.2, Enum.EasingStyle.Linear), {CFrame = hrp.CFrame + Vector3.new(0, upHeight, 0)})
             t1:Play() task.wait(0.2)
             
@@ -372,7 +365,6 @@ local function goTo(hrp, targetCF)
             local t2 = TweenService:Create(hrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = targetCF + Vector3.new(0, upHeight, 0)})
             t2:Play() task.wait(dur)
         end
-        
         local t3 = TweenService:Create(hrp, TweenInfo.new(0.2, Enum.EasingStyle.Linear), {CFrame = targetCF})
         t3:Play() task.wait(0.2)
     else
@@ -393,23 +385,22 @@ function startAutoStealLoop()
             if not hrp or not hum or hum.Health <= 0 then continue end
 
             local part = findGuardEgg(hrp)
-            if not part then task.wait(0.5) continue end
+            if not part then 
+                task.wait(0.5) 
+                continue 
+            end
 
-            -- Pergi ke telur target (Arc Flight)
+            -- 1. Terbang ke Area Telur
             goTo(hrp, part.CFrame * CFrame.new(0, 3, 0))
-            task.wait(0.3) -- Jeda kecil agar map di sekitar telur ter-render dan ProximityPrompt Aktif
+            task.wait(0.4) 
             
-            -- Cari ulang prompt karena posisinya sekarang sudah sangat dekat dengan target
-            local prompt = part.Parent:FindFirstChildWhichIsA("ProximityPrompt", true) 
-                        or part:FindFirstChildWhichIsA("ProximityPrompt", true)
-
-            if not prompt then
-                for _, p in ipairs(Workspace:GetDescendants()) do
-                    if p:IsA("ProximityPrompt") and (p.Name == "CarryAreaEgg" or p.ActionText:lower():find("carry")) then
-                        local pPart = toPart(p.Parent)
-                        if pPart and (pPart.Position - part.Position).Magnitude < 15 then
-                            prompt = p break
-                        end
+            -- 2. Cari ProximityPrompt lalu ambil telurnya
+            local prompt = nil
+            for _, p in ipairs(Workspace:GetDescendants()) do
+                if p:IsA("ProximityPrompt") and (p.Name == "CarryAreaEgg" or p.ActionText:lower():find("carry")) then
+                    local pPart = p.Parent and (p.Parent:IsA("BasePart") and p.Parent or p.Parent:FindFirstChildWhichIsA("BasePart"))
+                    if pPart and (pPart.Position - part.Position).Magnitude < 15 then
+                        prompt = p break
                     end
                 end
             end
@@ -419,19 +410,19 @@ function startAutoStealLoop()
                 pcall(fireproximityprompt, prompt)
             end
             
-            task.wait(0.5) 
+            task.wait(0.6)
 
-            -- Pulang ke Base dengan aman
+            -- 3. Pulang ke Base Asli (Zona Aman) yang dicatat saat tombol ditekan
             if baseCFrame and config.running and myToken == loopToken then
                 goTo(hrp, baseCFrame)
-                task.wait(0.5) -- Tunggu sebentar sampai telur tercatat masuk ke deposit base
+                task.wait(0.6)
             end
         end
     end)
 end
 
 -- ==========================================
--- MAIN TAB CONTENT (CLEAN LAYOUT)
+-- MAIN TAB CONTENT
 -- ==========================================
 local mainList = Instance.new("UIListLayout", pageMain)
 mainList.SortOrder = Enum.SortOrder.LayoutOrder
@@ -441,11 +432,12 @@ createToggle(pageMain, "Instant Teleport Mode", function(st)
     config.method = st and "Instant" or "Fly"
 end)
 
-createToggle(pageMain, "Auto Steal (Stand inside Safe Zone!)", function(st)
+createToggle(pageMain, "Auto Steal (Start from Safe Zone)", function(st)
     config.running = st
     if config.running then
         local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         if hrp then 
+            -- Rekam posisi Safe Zone saat tombol dinyalakan
             baseCFrame = hrp.CFrame + Vector3.new(0, 3, 0) 
         end
         startAutoStealLoop()
