@@ -1,52 +1,50 @@
-local Workspace = game:GetService("Workspace")
-local out = {}
+local RS = game:GetService("ReplicatedStorage")
 
-local function add(s)
-    table.insert(out, tostring(s))
-end
-
-add("===== SEARCH EGG LOGIC =====")
-add("")
-
-local targets = {
-    "PreparedSourceName",
-    "AreaEggSlotsClient",
-    "CarryAreaEgg",
-    "Rarity",
-    "Variant",
-    "Size",
-    "Egg"
+local paths = {
+    "Shared.Util.EggRecords",
+    "Shared.Util.EggScaling",
+    "Shared.Util.AreaEggSlotIdentity",
+    "Data.Rarity",
+    "Shared.Types.Eggs",
+    "Shared.Types.AreaEggs",
 }
 
-for _, obj in ipairs(game:GetDescendants()) do
-    if obj:IsA("ModuleScript") or obj:IsA("LocalScript") or obj:IsA("Script") then
-        local n = string.lower(obj.Name)
+print("===== EGG DATA MODULE CHECK =====")
 
-        for _, target in ipairs(targets) do
-            if n:find(string.lower(target), 1, true) then
-                add(obj:GetFullName() .. " [" .. obj.ClassName .. "]")
+for _, path in ipairs(paths) do
+    local obj = RS
+    for part in string.gmatch(path, "[^%.]+") do
+        obj = obj and obj:FindFirstChild(part)
+    end
+
+    print("\n[" .. path .. "]")
+
+    if not obj then
+        print("NOT FOUND")
+        continue
+    end
+
+    print("Class:", obj.ClassName)
+
+    local ok, result = pcall(require, obj)
+
+    if not ok then
+        print("REQUIRE ERROR:", result)
+    elseif type(result) == "table" then
+        local count = 0
+
+        for k, v in pairs(result) do
+            count += 1
+            print("  ", tostring(k), "=", tostring(v))
+
+            if count >= 40 then
+                print("  ... truncated")
                 break
             end
         end
+
+        print("KEY COUNT:", count)
+    else
+        print("RETURN:", tostring(result))
     end
 end
-
-add("")
-add("===== MODULE/SCRIPT NAMES NEAR EGG =====")
-
-for _, obj in ipairs(Workspace:GetDescendants()) do
-    if obj:IsA("ModuleScript") or obj:IsA("LocalScript") or obj:IsA("Script") then
-        local n = string.lower(obj.Name)
-        if n:find("egg") or n:find("animal") or n:find("pet") 
-        or n:find("steal") or n:find("slot") then
-            add(obj:GetFullName() .. " [" .. obj.ClassName .. "]")
-        end
-    end
-end
-
-local result = table.concat(out, "\n")
-pcall(function()
-    if setclipboard then setclipboard(result) end
-end)
-
-print(result)
