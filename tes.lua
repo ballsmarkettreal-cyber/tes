@@ -3,7 +3,7 @@ local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local hrp = player.Character:WaitForChild("HumanoidRootPart")
 
-local out = {}
+local out, seen = {}, {}
 local function add(s) table.insert(out, s) end
 
 local function attrs(inst)
@@ -14,31 +14,36 @@ local function attrs(inst)
     return #t > 0 and table.concat(t, ", ") or "-"
 end
 
-local seen = {}
+local function topInstance(inst)
+    local p = inst
+    while p.Parent and p.Parent ~= Workspace do p = p.Parent end
+    return p
+end
+
+local params = OverlapParams.new()
+params.FilterType = Enum.RaycastFilterType.Exclude
+params.FilterDescendantsInstances = {player.Character}
+
 for _, v in ipairs(Workspace:GetDescendants()) do
     if v:IsA("ProximityPrompt") and v.Name == "CarryAreaEgg" then
         local part = v.Parent
         if part and part:IsA("BasePart") and (part.Position - hrp.Position).Magnitude < 40 then
-            add("== " .. v:GetFullName())
-            add("part attr: " .. attrs(part))
-            add("prompt attr: " .. attrs(v))
-
-            -- naik ke atas: cari model/folder pembungkus + attributes-nya
-            local p = part.Parent
-            local depth = 0
-            while p and p ~= Workspace and depth < 4 do
-                add("parent[" .. depth .. "]: " .. p.Name .. " (" .. p.ClassName .. ") attr: " .. attrs(p))
-                p = p.Parent
-                depth += 1
-            end
-
-            -- anak-anak di sekitar part: Value object dan teks label
-            local root = part.Parent ~= Workspace and part.Parent or part
-            for _, d in ipairs(root:GetDescendants()) do
-                if d:IsA("ValueBase") then
-                    add("  value " .. d.Name .. " = " .. tostring(d.Value))
-                elseif d:IsA("TextLabel") and d.Text ~= "" then
-                    add("  text " .. d:GetFullName():sub(-40) .. " = " .. d.Text)
+            add("== prompt di " .. tostring(part.Position))
+            for _, hit in ipairs(Workspace:GetPartBoundsInRadius(part.Position, 12, params)) do
+                if hit ~= part and hit.Name ~= "Baseplate" then
+                    local top = topInstance(hit)
+                    if not seen[top] and top.Name ~= "Terrain" then
+                        seen[top] = true
+                        add("• " .. top:GetFullName() .. " (" .. top.ClassName .. ") attr: " .. attrs(top))
+                        add("    hit: " .. hit.Name .. " attr: " .. attrs(hit))
+                        for _, d in ipairs(top:GetDescendants()) do
+                            if d:IsA("ValueBase") then
+                                add("    value " .. d.Name .. " = " .. tostring(d.Value))
+                            elseif d:IsA("TextLabel") and d.Text ~= "" then
+                                add("    text = " .. d.Text)
+                            end
+                        end
+                    end
                 end
             end
             add("")
@@ -46,14 +51,14 @@ for _, v in ipairs(Workspace:GetDescendants()) do
     end
 end
 
-local text = #out > 0 and table.concat(out, "\n") or "Tidak ada CarryAreaEgg dalam radius 40 stud"
+local text = #out > 0 and table.concat(out, "\n") or "Tidak ada objek dekat prompt"
 pcall(function() if setclipboard then setclipboard(text) end end)
 
-local old = player.PlayerGui:FindFirstChild("EggInspect")
+local old = player.PlayerGui:FindFirstChild("EggInspect2")
 if old then old:Destroy() end
 
 local sg = Instance.new("ScreenGui")
-sg.Name = "EggInspect"
+sg.Name = "EggInspect2"
 sg.ResetOnSpawn = false
 sg.Parent = player.PlayerGui
 
@@ -62,8 +67,8 @@ sf.Size = UDim2.new(0.9, 0, 0.6, 0)
 sf.Position = UDim2.new(0.05, 0, 0.2, 0)
 sf.BackgroundColor3 = Color3.new(0, 0, 0)
 sf.BackgroundTransparency = 0.15
-sf.CanvasSize = UDim2.new(0, 0, 0, 0)
 sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
+sf.CanvasSize = UDim2.new(0, 0, 0, 0)
 sf.ScrollBarThickness = 6
 
 local lbl = Instance.new("TextLabel", sf)
