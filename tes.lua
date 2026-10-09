@@ -490,6 +490,7 @@ local function ownedByMe(inst)
     local cur = inst
     while cur and cur ~= Workspace do
         if cur == player.Character then return true end
+        if cur.Name:sub(1, #myId + 1) == myId .. "_" then return true end
         for _, a in ipairs(OWNER_ATTRS) do
             local v = cur:GetAttribute(a)
             if v ~= nil then
@@ -3379,6 +3380,117 @@ do
             dbg("   " .. entry[1] .. ": " .. table.concat(line, ", "))
         end
     end
+    -- 11) Struktur telur: hubungan prompt <-> model visual, pemilik telur terpasang, katalog NewEggs
+    function V25.scanEggStruct(dbg)
+        local hrp = getHRP()
+        dbg("== SCAN STRUKTUR TELUR ==")
+        local myPrefix = tostring(player.UserId) .. "_"
+        local function tree(inst, maxDepth, maxLines, indent)
+            local lines = 0
+            local function walk(node, depth)
+                for _, ch in ipairs(node:GetChildren()) do
+                    lines += 1
+                    if lines > maxLines then return end
+                    local extra = ""
+                    if ch:IsA("MeshPart") then extra = " mesh=" .. tostring(ch.MeshId) .. " tex=" .. tostring(ch.TextureID)
+                    elseif ch:IsA("SpecialMesh") then extra = " mesh=" .. tostring(ch.MeshId) .. " tex=" .. tostring(ch.TextureId)
+                    elseif ch:IsA("TextLabel") then extra = " text='" .. clip(ch.Text, 30) .. "'"
+                    elseif ch:IsA("ValueBase") then extra = " = " .. clip(valueLine(ch), 40) end
+                    dbg(("%s%s (%s)%s | %s"):format(indent .. string.rep("  ", depth), ch.Name, ch.ClassName, extra, attrStr(ch)))
+                    if depth < maxDepth then walk(ch, depth + 1) end
+                end
+            end
+            walk(inst, 1)
+            if lines > maxLines then dbg(indent .. "  ... dipotong") end
+        end
+        local list = {}
+        for _, p in ipairs(collectEggPrompts()) do
+            local pos = getPromptPosition(p)
+            if pos then table.insert(list, { p = p, pos = pos, d = hrp and (pos - hrp.Position).Magnitude or 0 }) end
+        end
+        table.sort(list, function(a, b) return a.d < b.d end)
+        dbg(("Prompt telur: %d (detail 4 terdekat)"):format(#list))
+        local visualFolders = {}
+        for _, fname in ipairs({ "PlacedEggRenders", "AreaEggSlotsClient", "Eggs" }) do
+            local f = Workspace:FindFirstChild(fname)
+            if f then table.insert(visualFolders, f) end
+        end
+        for i = 1, math.min(4, #list) do
+            local e = list[i]
+            local p = e.p
+            dbg(("-- #%d %s | jarak=%d"):format(i, p:GetFullName(), math.floor(e.d)))
+            dbg(("   aksi='%s' | objek='%s' | aktif=%s | tahan=%s | atribut prompt: %s"):format(
+                tostring(p.ActionText), tostring(p.ObjectText), tostring(p.Enabled), tostring(p.HoldDuration), attrStr(p)))
+            local par, n = p.Parent, 0
+            while par and par ~= Workspace and n < 6 do
+                dbg(("   induk: %s (%s) | %s"):format(par.Name, par.ClassName, attrStr(par)))
+                par = par.Parent; n += 1
+            end
+            local best, bd = nil, 15
+            for _, f in ipairs(visualFolders) do
+                for _, ch in ipairs(f:GetChildren()) do
+                    local cp = getInstPosition(ch)
+                    if cp then
+                        local dd = (cp - e.pos).Magnitude
+                        if dd < bd then best, bd = ch, dd end
+                    end
+                end
+            end
+            if best then
+                dbg(("   visual terdekat: %s | selisih=%.1f stud | atribut: %s"):format(best:GetFullName(), bd, attrStr(best)))
+                tree(best, 3, 40, "      ")
+            else
+                dbg("   (tidak ada visual di PlacedEggRenders/AreaEggSlotsClient/Eggs dalam 15 stud)")
+            end
+        end
+        local pf = Workspace:FindFirstChild("PlacedEggRenders")
+        if pf then
+            local owners = {}
+            for _, ch in ipairs(pf:GetChildren()) do
+                local id = ch.Name:match("^(%d+)_")
+                if id then owners[id] = (owners[id] or 0) + 1 end
+            end
+            local arr = {}
+            for id, c in pairs(owners) do
+                local who = (id == tostring(player.UserId)) and "AKU" or "?"
+                for _, pl in ipairs(Players:GetPlayers()) do if tostring(pl.UserId) == id then who = pl.Name end end
+                table.insert(arr, id .. "=" .. c .. " (" .. who .. ")")
+            end
+            table.sort(arr)
+            dbg("Pemilik telur di PlacedEggRenders (awalan nama = UserId?): " .. (#arr > 0 and table.concat(arr, ", ") or "-"))
+            dbg("[TELUR YANG KAMU TARUH] awalan " .. myPrefix .. " (maks 3):")
+            local cnt = 0
+            for _, ch in ipairs(pf:GetChildren()) do
+                if ch.Name:sub(1, #myPrefix) == myPrefix then
+                    cnt += 1
+                    if cnt > 3 then break end
+                    dbg(("   %s (%s) | jarak=%d | atribut: %s"):format(ch.Name, ch.ClassName, distOf(getInstPosition(ch), hrp), attrStr(ch)))
+                    tree(ch, 3, 40, "      ")
+                end
+            end
+            if cnt == 0 then dbg("   (tidak ada)") end
+        else
+            dbg("Workspace.PlacedEggRenders tidak ada")
+        end
+        dbg("[KATALOG NewEggs]")
+        local cat = Workspace:FindFirstChild("NewEggs", true) or game:GetService("ReplicatedStorage"):FindFirstChild("NewEggs", true)
+        if cat then
+            local kids = cat:GetChildren()
+            dbg(("   %s | anak=%d | atribut: %s"):format(cat:GetFullName(), #kids, attrStr(cat)))
+            local names = {}
+            for i, k in ipairs(kids) do
+                if i > 60 then break end
+                table.insert(names, k.Name)
+            end
+            dbg("   nama: " .. table.concat(names, ", "))
+            for i = 1, math.min(2, #kids) do
+                dbg(("   contoh %s (%s) | atribut: %s"):format(kids[i].Name, kids[i].ClassName, attrStr(kids[i])))
+                tree(kids[i], 2, 20, "      ")
+            end
+        else
+            dbg("   (folder NewEggs tidak ditemukan di Workspace/ReplicatedStorage)")
+        end
+    end
 end
 
 do
@@ -4698,6 +4810,7 @@ local function buildUI()
         { "Scan Data Pemain", function() V25.scanPlayerData(dbg) end },
         { "Scan Place / Hatch (plot sendiri)", function() V25.scanPlaceHatch(dbg) end },
         { "Scan Kamus Telur + Uji Filter", function() V25.scanEggVocab(dbg) end },
+        { "Scan Struktur Telur (prompt & visual)", function() V25.scanEggStruct(dbg) end },
         { "Scan Teks Filter Telur", scanFilterText },
         { "Scan Safe Zone", function() V25.scanSafe(dbg) end },
         { "Scan Shop GUI", scanShopGui },
