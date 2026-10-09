@@ -515,6 +515,30 @@ local function getEggRoot(prompt)
         while cur and cur.Parent ~= folder do cur = cur.Parent end
         if cur and cur ~= folder then return cur end
     end
+    -- V35: prompt telur ada di Workspace.SmartPromptPart (bukan di dalam folder slot). Visual telurnya = slot
+    -- AreaEggSlotsClient yang posisinya sama dengan prompt (selisih ~0 stud menurut scan).
+    if folder then
+        V25.eggRootCache = V25.eggRootCache or setmetatable({}, { __mode = "k" })
+        V25.slotPosCache = V25.slotPosCache or setmetatable({}, { __mode = "k" })
+        local c = V25.eggRootCache[prompt]
+        if c and c.root.Parent == folder and os.clock() - c.t < 5 then return c.root end
+        local pos = getPromptPosition(prompt)
+        if pos then
+            local best, bd = nil, 3
+            for _, ch in ipairs(folder:GetChildren()) do
+                local sc = V25.slotPosCache[ch]
+                if not sc or os.clock() - sc.t > 5 then
+                    sc = { pos = getInstPosition(ch), t = os.clock() }
+                    V25.slotPosCache[ch] = sc
+                end
+                if sc.pos then
+                    local dd = (sc.pos - pos).Magnitude
+                    if dd < bd then best, bd = ch, dd end
+                end
+            end
+            if best then V25.eggRootCache[prompt] = { root = best, t = os.clock() }; return best end
+        end
+    end
     return prompt:FindFirstAncestorOfClass("Model") or prompt.Parent
 end
 local function collectEggText(root)
@@ -3491,6 +3515,94 @@ do
             dbg("   (folder NewEggs tidak ditemukan di Workspace/ReplicatedStorage)")
         end
     end
+    -- 12) Telur yang dibawa / tool / ringkasan slot area (sumber nama, rarity, variant, size)
+    function V25.scanEggItem(dbg)
+        dbg("== SCAN TELUR DIBAWA / TOOL / SLOT AREA ==")
+        local char = player.Character
+        dbg("Atribut Player: " .. attrStr(player))
+        if char then dbg("Atribut Character: " .. attrStr(char)) end
+        local function tree(inst, maxDepth, maxLines, indent)
+            local lines = 0
+            local function walk(node, depth)
+                for _, ch in ipairs(node:GetChildren()) do
+                    lines += 1
+                    if lines > maxLines then return end
+                    local extra = ""
+                    if ch:IsA("MeshPart") then extra = " mesh=" .. tostring(ch.MeshId) .. " tex=" .. tostring(ch.TextureID)
+                    elseif ch:IsA("SpecialMesh") then extra = " mesh=" .. tostring(ch.MeshId) .. " tex=" .. tostring(ch.TextureId)
+                    elseif ch:IsA("TextLabel") then extra = " text='" .. clip(ch.Text, 30) .. "'"
+                    elseif ch:IsA("ValueBase") then extra = " = " .. clip(valueLine(ch), 40) end
+                    dbg(("%s%s (%s)%s | %s"):format(indent .. string.rep("  ", depth), ch.Name, ch.ClassName, extra, attrStr(ch)))
+                    if depth < maxDepth then walk(ch, depth + 1) end
+                end
+            end
+            walk(inst, 1)
+            if lines > maxLines then dbg(indent .. "  ... dipotong") end
+        end
+        local tools = {}
+        if char then
+            for _, t in ipairs(char:GetChildren()) do if t:IsA("Tool") then table.insert(tools, { t = t, where = "Character" }) end end
+        end
+        for _, t in ipairs(player.Backpack:GetChildren()) do
+            if t:IsA("Tool") then table.insert(tools, { t = t, where = "Backpack" }) end
+        end
+        dbg(("[TOOL] jumlah: %d"):format(#tools))
+        local detailed = 0
+        for i, e in ipairs(tools) do
+            if i > 40 then dbg("   ... dipotong"); break end
+            local t = e.t
+            dbg(("   %s | %s (%s) | atribut: %s"):format(e.where, t.Name, t.ClassName, attrStr(t)))
+            local eggLike = matchesAny(t.Name .. " " .. attrStr(t), { "egg" })
+            if (eggLike or e.where == "Character") and detailed < 4 then
+                detailed += 1
+                tree(t, 3, 40, "        ")
+            end
+        end
+        dbg("[OBJEK bernama 'egg' di Character (telur yang sedang dibawa)]:")
+        local k = 0
+        if char then
+            for _, d in ipairs(char:GetDescendants()) do
+                if d.Name:lower():find("egg", 1, true) then
+                    k += 1
+                    if k > 6 then dbg("   ... dipotong"); break end
+                    dbg(("   %s (%s) | atribut: %s"):format(d:GetFullName(), d.ClassName, attrStr(d)))
+                    if k <= 2 then tree(d, 2, 20, "        ") end
+                end
+            end
+        end
+        if k == 0 then dbg("   (tidak ada)") end
+        local folder = Workspace:FindFirstChild("AreaEggSlotsClient")
+        if folder then
+            local groups, sig = {}, {}
+            for _, ch in ipairs(folder:GetChildren()) do
+                local kind, uid, _, area = ch.Name:match("^(.-)_(%d+)_(%d+)_([^:]+):Slot_%d+")
+                local key = kind and (kind .. " uid=" .. uid .. " area=" .. area) or ("(format lain) " .. ch.Name)
+                groups[key] = (groups[key] or 0) + 1
+                local ids = {}
+                for _, d in ipairs(ch:GetDescendants()) do
+                    if d:IsA("MeshPart") then table.insert(ids, tostring(d.MeshId):match("%d+") or "?") end
+                end
+                table.sort(ids)
+                local sg2 = table.concat(ids, "+")
+                sig[sg2] = sig[sg2] or { n = 0, ex = ch.Name }
+                sig[sg2].n += 1
+            end
+            dbg("[SLOT AREA] AreaEggSlotsClient dikelompokkan (jenis, pemilik, area):")
+            local n = 0
+            for key, c in pairs(groups) do
+                n += 1; if n > 20 then dbg("   ... dipotong"); break end
+                dbg(("   %s x%d"):format(key, c))
+            end
+            dbg("[SLOT AREA] jenis visual (gabungan MeshId) dan jumlahnya:")
+            n = 0
+            for s, v in pairs(sig) do
+                n += 1; if n > 20 then dbg("   ... dipotong"); break end
+                dbg(("   %s x%d | contoh %s"):format(clip(s, 80), v.n, v.ex))
+            end
+        else
+            dbg("Workspace.AreaEggSlotsClient tidak ada")
+        end
+    end
 end
 
 do
@@ -4811,6 +4923,7 @@ local function buildUI()
         { "Scan Place / Hatch (plot sendiri)", function() V25.scanPlaceHatch(dbg) end },
         { "Scan Kamus Telur + Uji Filter", function() V25.scanEggVocab(dbg) end },
         { "Scan Struktur Telur (prompt & visual)", function() V25.scanEggStruct(dbg) end },
+        { "Scan Telur Dibawa / Tool / Slot Area", function() V25.scanEggItem(dbg) end },
         { "Scan Teks Filter Telur", scanFilterText },
         { "Scan Safe Zone", function() V25.scanSafe(dbg) end },
         { "Scan Shop GUI", scanShopGui },
