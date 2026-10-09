@@ -3373,6 +3373,71 @@ do
         dbg(("Total remote/event: %d | cocok kata kunci: %d%s"):format(total, n, n > 120 and " (dipotong 120)" or ""))
     end
 
+    -- Spy remote: merekam panggilan FireServer/InvokeServer selama beberapa detik, supaya kelihatan
+    -- remote + argumen apa yang dipakai game saat telur ditaruh MANUAL. Hook hanya merekam lalu meneruskan panggilan.
+    V25.spy = { active = false, busy = false, seen = 0, installed = false }
+    function V25.spyRemotes(dbg)
+        local spy = V25.spy
+        if typeof(hookmetamethod) ~= "function" or typeof(getnamecallmethod) ~= "function" then
+            dbg("Executor tidak mendukung hookmetamethod / getnamecallmethod, spy tidak bisa dipakai")
+            return
+        end
+        local DURATION = 20
+        local function fmt(v, depth)
+            depth = depth or 0
+            local t = typeof(v)
+            if t == "string" then return '"' .. clip(v, 40) .. '"' end
+            if t == "number" or t == "boolean" or t == "nil" then return tostring(v) end
+            if t == "Instance" then return v:GetFullName() end
+            if t == "Vector3" or t == "CFrame" or t == "Vector2" or t == "Color3" or t == "EnumItem" then return tostring(v) end
+            if t == "table" and depth < 2 then
+                local parts, n = {}, 0
+                for k, x in pairs(v) do
+                    n += 1
+                    if n > 8 then table.insert(parts, "..."); break end
+                    table.insert(parts, tostring(k) .. "=" .. fmt(x, depth + 1))
+                end
+                return "{" .. table.concat(parts, ", ") .. "}"
+            end
+            return "<" .. t .. ">"
+        end
+        spy.seen = 0
+        if not spy.installed then
+            local ok, err = pcall(function()
+                local old
+                old = hookmetamethod(game, "__namecall", function(self, ...)
+                    if spy.active and not spy.busy then
+                        local method = getnamecallmethod()
+                        if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
+                            spy.busy = true
+                            spy.seen += 1
+                            if spy.seen <= 60 then
+                                local args = table.pack(...)
+                                local okf, line = pcall(function()
+                                    local parts = {}
+                                    for i = 1, args.n do parts[i] = fmt(args[i]) end
+                                    return method .. " | " .. self:GetFullName() .. " | (" .. table.concat(parts, ", ") .. ")"
+                                end)
+                                if okf then task.defer(dbg, line) end
+                            end
+                            spy.busy = false
+                            return old(self, ...)
+                        end
+                    end
+                    return old(self, ...)
+                end)
+            end)
+            if not ok then dbg("Gagal memasang spy: " .. tostring(err)); return end
+            spy.installed = true
+        end
+        spy.active = true
+        dbg(("== SPY REMOTE AKTIF %d detik: SEKARANG taruh telur secara MANUAL (sekali saja) =="):format(DURATION))
+        task.delay(DURATION, function()
+            spy.active = false
+            dbg(("== SPY SELESAI | total panggilan terekam: %d%s =="):format(spy.seen, spy.seen > 60 and " (hanya 60 pertama ditampilkan)" or ""))
+        end)
+    end
+
     -- 8) Event / boss (Dr. Scramble Mecha & Drone, dll) + timer di GUI
     function V25.scanEvents(dbg)
         local hrp = getHRP()
@@ -5076,6 +5141,7 @@ local function buildUI()
         { "Scan Jendela GUI Terbuka", function() V25.scanWindows(dbg) end },
         { "Scan Detail Telur (webhook)", function() V25.scanEggDetail(dbg) end },
         { "Scan Remote Penting", function() V25.scanRemotesKey(dbg) end },
+        { "Spy Remote 20 detik (taruh telur manual)", function() V25.spyRemotes(dbg) end, skipAll = true },
         { "Scan Event / Boss", function() V25.scanEvents(dbg) end },
         { "Scan Data Pemain", function() V25.scanPlayerData(dbg) end },
         { "Scan Place / Hatch (plot sendiri)", function() V25.scanPlaceHatch(dbg) end },
@@ -5097,7 +5163,7 @@ local function buildUI()
     table.insert(dbgBtns, 1, { ALL_LABEL, function()
         dbg("##### SCAN SEMUA DIMULAI #####")
         for _, d in ipairs(dbgBtns) do
-            if d[1] ~= ALL_LABEL then
+            if d[1] ~= ALL_LABEL and not d.skipAll then
                 dbg("")
                 dbg("##### " .. d[1] .. " #####")
                 local ok, err = pcall(d[2])
