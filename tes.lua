@@ -3375,14 +3375,27 @@ do
 
     -- Spy remote: merekam panggilan FireServer/InvokeServer selama beberapa detik, supaya kelihatan
     -- remote + argumen apa yang dipakai game saat telur ditaruh MANUAL. Hook hanya merekam lalu meneruskan panggilan.
-    V25.spy = { active = false, busy = false, seen = 0, installed = false }
+    -- Remote bising (AwayEarnings/Analytics/RigSync/ClientKit) disaring dan panggilan identik dibatasi 3x.
+    V25.spy = { active = false, busy = false, seen = 0, installed = false, noise = {}, dupe = {} }
     function V25.spyRemotes(dbg)
         local spy = V25.spy
         if typeof(hookmetamethod) ~= "function" or typeof(getnamecallmethod) ~= "function" then
             dbg("Executor tidak mendukung hookmetamethod / getnamecallmethod, spy tidak bisa dipakai")
             return
         end
-        local DURATION = 20
+        local DURATION = 25
+        local NOISE = { "awayearnings", "analytics", "rigsync", "clientkit" }
+        -- kandidat remote terkait telur/plot (berguna walau rekaman terlewat)
+        dbg("[KANDIDAT REMOTE place/egg/pen/slot/hatch]")
+        local cand = 0
+        for _, d in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+            if (d:IsA("RemoteEvent") or d:IsA("RemoteFunction")) and matchesAny(d:GetFullName(), { "place", "egg", "pen", "slot", "hatch", "incubat" }) then
+                cand += 1
+                if cand > 40 then dbg("   ... dipotong"); break end
+                dbg("   " .. d.ClassName .. " | " .. d.Name)
+            end
+        end
+        if cand == 0 then dbg("   (tidak ada)") end
         local function fmt(v, depth)
             depth = depth or 0
             local t = typeof(v)
@@ -3401,7 +3414,7 @@ do
             end
             return "<" .. t .. ">"
         end
-        spy.seen = 0
+        spy.seen = 0; spy.noise = {}; spy.dupe = {}
         if not spy.installed then
             local ok, err = pcall(function()
                 local old
@@ -3410,15 +3423,26 @@ do
                         local method = getnamecallmethod()
                         if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
                             spy.busy = true
-                            spy.seen += 1
-                            if spy.seen <= 60 then
-                                local args = table.pack(...)
-                                local okf, line = pcall(function()
-                                    local parts = {}
-                                    for i = 1, args.n do parts[i] = fmt(args[i]) end
-                                    return method .. " | " .. self:GetFullName() .. " | (" .. table.concat(parts, ", ") .. ")"
-                                end)
-                                if okf then task.defer(dbg, line) end
+                            local args = table.pack(...)
+                            local okf, line, noisy, full = pcall(function()
+                                local fullName = self:GetFullName()
+                                local lower = fullName:lower()
+                                for _, w in ipairs(NOISE) do
+                                    if lower:find(w, 1, true) then return nil, true, fullName end
+                                end
+                                local parts = {}
+                                for i = 1, args.n do parts[i] = fmt(args[i]) end
+                                return method .. " | " .. fullName .. " | (" .. table.concat(parts, ", ") .. ")", false, fullName
+                            end)
+                            if okf then
+                                if noisy then
+                                    spy.noise[full] = (spy.noise[full] or 0) + 1
+                                elseif line then
+                                    spy.seen += 1
+                                    local c = (spy.dupe[line] or 0) + 1
+                                    spy.dupe[line] = c
+                                    if c <= 3 and spy.seen <= 150 then task.defer(dbg, line) end
+                                end
                             end
                             spy.busy = false
                             return old(self, ...)
@@ -3434,7 +3458,10 @@ do
         dbg(("== SPY REMOTE AKTIF %d detik: SEKARANG taruh telur secara MANUAL (sekali saja) =="):format(DURATION))
         task.delay(DURATION, function()
             spy.active = false
-            dbg(("== SPY SELESAI | total panggilan terekam: %d%s =="):format(spy.seen, spy.seen > 60 and " (hanya 60 pertama ditampilkan)" or ""))
+            local skipped = {}
+            for name, c in pairs(spy.noise) do table.insert(skipped, name:match("[^%.]+$") .. " x" .. c) end
+            table.sort(skipped)
+            dbg(("== SPY SELESAI | panggilan terekam: %d | bising disaring: %s =="):format(spy.seen, #skipped > 0 and table.concat(skipped, ", ") or "-"))
         end)
     end
 
