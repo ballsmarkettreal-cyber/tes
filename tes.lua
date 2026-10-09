@@ -2904,6 +2904,36 @@ do
                 dbg(("   %s (%s) anak=%d | %s"):format(c.Name, c.ClassName, #c:GetChildren(), attrStr(c)))
             end
         end
+        local plotsFolder = Workspace:FindFirstChild("Plots")
+        if plotsFolder then
+            local kids = {}
+            for _, c in ipairs(plotsFolder:GetChildren()) do
+                local pos = getInstPosition(c)
+                table.insert(kids, { inst = c, dist = (pos and hrp) and (pos - hrp.Position).Magnitude or math.huge })
+            end
+            table.sort(kids, function(a, b) return a.dist < b.dist end)
+            dbg(("Workspace.Plots berisi %d plot (urut terdekat dari karaktermu)"):format(#kids))
+            for i, e in ipairs(kids) do
+                local c = e.inst
+                dbg(("-- plot %s (%s) | jarak=%d | ownedByMe=%s | atribut: %s"):format(
+                    c.Name, c.ClassName, e.dist == math.huge and -1 or math.floor(e.dist), tostring(ownedByMe(c)), attrStr(c)))
+                if i <= 3 then
+                    -- detail penuh untuk 3 plot terdekat: anak langsung + atribut, lalu value/teks/prompt di dalamnya
+                    for _, ch in ipairs(c:GetChildren()) do
+                        dbg(("   anak: %s (%s) | %s"):format(ch.Name, ch.ClassName, attrStr(ch)))
+                    end
+                    local cnt, shown = 0, 0
+                    for _, v in ipairs(c:GetDescendants()) do
+                        cnt += 1; if cnt > 1500 or shown >= 40 then break end
+                        local rel = v:GetFullName():sub(#c:GetFullName() + 2)
+                        if v:IsA("ValueBase") then shown += 1; dbg(("   value %s (%s) = %s"):format(rel, v.ClassName, clip(valueLine(v), 70)))
+                        elseif v:IsA("TextLabel") and v.Text ~= "" then shown += 1; dbg(("   teks %s = '%s'"):format(rel, clip(v.Text, 60)))
+                        elseif v:IsA("ProximityPrompt") then shown += 1; dbg(("   prompt %s | aksi='%s' | objek='%s'"):format(rel, tostring(v.ActionText), tostring(v.ObjectText))) end
+                    end
+                end
+            end
+            return
+        end
         local plots = {}
         for _, d in ipairs(Workspace:GetDescendants()) do
             if (d:IsA("Model") or d:IsA("Folder")) and nameHas(d.Name, "plot") then
