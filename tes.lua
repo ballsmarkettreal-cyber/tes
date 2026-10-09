@@ -2146,6 +2146,28 @@ local function eggToolMatches(tool)
     for k, v in pairs(tool:GetAttributes()) do text = text .. " " .. tostring(k):lower() .. ":" .. tostring(v):lower() end
     return passesFilters(tool, text, config.placeFilters)
 end
+function V25.netRemote(name)
+    local rs = game:GetService("ReplicatedStorage")
+    local pk = rs:FindFirstChild("Packages")
+    local nw = pk and pk:FindFirstChild("Networking")
+    return nw and nw:FindFirstChild(name)
+end
+-- game memakai RF/EggWorld/AskWearTool(UID) saat telur dipegang dari hotbar; tiru supaya server ikut tahu telur dipegang
+function V25.wearEgg(tool, hum)
+    if tool.Parent == player.Character then return true end
+    local uid = tool:GetAttribute("UID")
+    local r = uid and V25.netRemote("RF/EggWorld/AskWearTool")
+    if r and r:IsA("RemoteFunction") then
+        pcall(function() r:InvokeServer(uid) end)
+        for _ = 1, 10 do
+            if tool.Parent == player.Character then return true end
+            task.wait(0.1)
+        end
+    end
+    pcall(function() hum:EquipTool(tool) end)
+    task.wait(0.3)
+    return tool.Parent == player.Character
+end
 function V25.isEggItem(t)
     return t:IsA("Tool") and (t:GetAttribute("ItemType") == "AssetEgg" or t.Name:lower():find("egg", 1, true) ~= nil)
 end
@@ -2164,7 +2186,7 @@ local function autoPlaceOnce()
         for _, t in ipairs(player.Backpack:GetChildren()) do
             if V25.isEggItem(t) and eggToolMatches(t) then
                 tool = t
-                pcall(function() hum:EquipTool(t) end); task.wait(0.3)
+                V25.wearEgg(t, hum)
                 break
             end
         end
@@ -2197,7 +2219,7 @@ local function autoPlaceOnce()
         if not uiAlive then return end
         local h = getHRP(); if not h then return end
         if (h.Position - sp).Magnitude > 6 then goTo(h, sp + Vector3.new(0, 3, 0), always) end
-        if tool.Parent ~= player.Character then pcall(function() hum:EquipTool(tool) end); task.wait(0.2) end
+        if tool.Parent ~= player.Character then V25.wearEgg(tool, hum) end
         local p
         for _ = 1, 6 do
             p = V25.nearbyPrompt(HINTS.place, 14, "fusion")
@@ -3445,6 +3467,18 @@ do
                                 end
                             end
                             spy.busy = false
+                            if okf and not noisy and line and method == "InvokeServer" then
+                                local res = table.pack(old(self, ...))
+                                spy.busy = true
+                                local okr, rl = pcall(function()
+                                    local ps = {}
+                                    for i = 1, res.n do ps[i] = fmt(res[i]) end
+                                    return table.concat(ps, ", ")
+                                end)
+                                spy.busy = false
+                                if okr and (spy.dupe[line] or 0) <= 3 and spy.seen <= 150 then task.defer(dbg, "   -> " .. rl) end
+                                return table.unpack(res, 1, res.n)
+                            end
                             return old(self, ...)
                         end
                     end
@@ -3454,10 +3488,22 @@ do
             if not ok then dbg("Gagal memasang spy: " .. tostring(err)); return end
             spy.installed = true
         end
+        -- catat juga ketukan layar, supaya kelihatan apakah ketukan terbaca walau remote tidak terpanggil
+        local taps = 0
+        local inputConn = UserInputService.InputBegan:Connect(function(input, processed)
+            local ut = input.UserInputType
+            if ut == Enum.UserInputType.Touch or ut == Enum.UserInputType.MouseButton1 then
+                taps += 1
+                if taps <= 10 then
+                    dbg(("[input] ketuk/klik layar (%d,%d) | dipakai UI game=%s"):format(math.floor(input.Position.X), math.floor(input.Position.Y), tostring(processed)))
+                end
+            end
+        end)
         spy.active = true
-        dbg(("== SPY REMOTE AKTIF %d detik: SEKARANG taruh telur secara MANUAL (sekali saja) =="):format(DURATION))
+        dbg(("== SPY REMOTE AKTIF %d detik: SEKARANG pegang telur lalu ketuk tanah kosong di base (sekali saja) =="):format(DURATION))
         task.delay(DURATION, function()
             spy.active = false
+            if inputConn then inputConn:Disconnect() end
             local skipped = {}
             for name, c in pairs(spy.noise) do table.insert(skipped, name:match("[^%.]+$") .. " x" .. c) end
             table.sort(skipped)
@@ -5168,7 +5214,7 @@ local function buildUI()
         { "Scan Jendela GUI Terbuka", function() V25.scanWindows(dbg) end },
         { "Scan Detail Telur (webhook)", function() V25.scanEggDetail(dbg) end },
         { "Scan Remote Penting", function() V25.scanRemotesKey(dbg) end },
-        { "Spy Remote 20 detik (taruh telur manual)", function() V25.spyRemotes(dbg) end, skipAll = true },
+        { "Spy Remote 25 detik (taruh telur manual)", function() V25.spyRemotes(dbg) end, skipAll = true },
         { "Scan Event / Boss", function() V25.scanEvents(dbg) end },
         { "Scan Data Pemain", function() V25.scanPlayerData(dbg) end },
         { "Scan Place / Hatch (plot sendiri)", function() V25.scanPlaceHatch(dbg) end },
