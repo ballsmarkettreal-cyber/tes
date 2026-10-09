@@ -462,8 +462,31 @@ local function collectEggPrompts()
 end
 
 local OWNER_ATTRS = { "Owner", "OwnerId", "OwnerUserId", "OwnerName", "UserId", "PlayerName", "Player" }
+-- V35: plot sendiri = plot yang papan namanya (PlotSign...PlayerName) berisi nama/display name kita.
+-- Nomor plot berubah tiap server, jadi SELALU dibaca dari papan nama, bukan dari nomor.
+function V25.myPlot()
+    local c = V25.myPlotCache
+    if c and os.clock() - c.t < 3 and (not c.plot or c.plot.Parent) then return c.plot end
+    local found
+    local folder = Workspace:FindFirstChild("Plots")
+    if folder then
+        local myName, myDisp = player.Name:lower(), player.DisplayName:lower()
+        for _, plot in ipairs(folder:GetChildren()) do
+            local sign = plot:FindFirstChild("PlotSign")
+            local lbl = sign and sign:FindFirstChild("PlayerName", true)
+            if lbl and lbl:IsA("TextLabel") then
+                local t = lbl.Text:lower()
+                if t == myDisp or t == myName then found = plot; break end
+            end
+        end
+    end
+    V25.myPlotCache = { t = os.clock(), plot = found }
+    return found
+end
 local function ownedByMe(inst)
     local myName = player.Name:lower(); local myDisplay = player.DisplayName:lower(); local myId = tostring(player.UserId)
+    local mp = V25.myPlot()
+    if mp and (inst == mp or inst:IsDescendantOf(mp)) then return true end
     local cur = inst
     while cur and cur ~= Workspace do
         if cur == player.Character then return true end
@@ -1192,6 +1215,11 @@ local function treadmillSpot(inst)
 end
 local function isTreadmillTop(d)
     if not (d:IsA("Model") or d:IsA("BasePart")) then return false end
+    local plotsFolder = Workspace:FindFirstChild("Plots")
+    if plotsFolder then
+        -- struktur game: Workspace.Plots.<n>.TreadmillBottom (TreadmillUpgrade & __ClientTreadmillRenders bukan treadmill)
+        return d.Name == "TreadmillBottom" and d.Parent ~= nil and d.Parent.Parent == plotsFolder
+    end
     if not nameHasAny(d.Name, HINTS.treadmill) then return false end
     local par = d.Parent
     if par and par:IsA("Model") and nameHasAny(par.Name, HINTS.treadmill) then return false end
@@ -1268,6 +1296,16 @@ local function findTreadmill()
     -- pilihan manual (tombol "Set Treadmill") selalu menang
     local man = Treadmill.manual
     if man and man.Parent and man:IsDescendantOf(Workspace) then Treadmill.inst = man; return man end
+    local mp = V25.myPlot()
+    local mine = mp and mp:FindFirstChild("TreadmillBottom")
+    if mine and mine.Parent and not Treadmill.banned[mine] then
+        if Treadmill.inst ~= mine then
+            Treadmill.inst = mine; Treadmill.notified = false
+            log("Treadmill dipilih: " .. mine:GetFullName() .. " [papan nama plot: " .. player.DisplayName .. "]")
+        end
+        Treadmill.how = "papan nama plot"
+        return mine
+    end
     if Treadmill.inst and Treadmill.inst.Parent and Treadmill.inst:IsDescendantOf(Workspace) and not Treadmill.banned[Treadmill.inst] then
         return Treadmill.inst
     end
@@ -2857,7 +2895,9 @@ do
         end
         table.sort(list, function(a, b) return a.dist < b.dist end)
         dbg(("Treadmill ditemukan: %d (tampil max 6 terdekat)"):format(#list))
-        local cur = Treadmill.manual or Treadmill.inst
+        local okF, cur = pcall(findTreadmill)
+        if not okF then cur = nil end
+        dbg("Plot milikku (papan nama): " .. (V25.myPlot() and V25.myPlot().Name or "TIDAK DITEMUKAN"))
         dbg("Terpilih skrip: " .. (cur and cur:GetFullName() or "belum ada") .. " [" .. tostring(Treadmill.how) .. "]")
         for i, e in ipairs(list) do
             if i > 6 then break end
@@ -2913,6 +2953,13 @@ do
             end
             table.sort(kids, function(a, b) return a.dist < b.dist end)
             dbg(("Workspace.Plots berisi %d plot (urut terdekat dari karaktermu)"):format(#kids))
+            local mpn = V25.myPlot()
+            dbg("Plot milikku menurut skrip (dari papan nama): " .. (mpn and mpn.Name or "TIDAK DITEMUKAN"))
+            for _, e in ipairs(kids) do
+                local sign = e.inst:FindFirstChild("PlotSign")
+                local lbl = sign and sign:FindFirstChild("PlayerName", true)
+                dbg(("   papan nama plot %s = '%s'"):format(e.inst.Name, lbl and lbl:IsA("TextLabel") and lbl.Text or "(tidak ada)"))
+            end
             for i, e in ipairs(kids) do
                 local c = e.inst
                 dbg(("-- plot %s (%s) | jarak=%d | ownedByMe=%s | atribut: %s"):format(
