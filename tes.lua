@@ -2057,30 +2057,165 @@ local function actOnPrompts(kws)
     end
     return count
 end
+-- V36: hatch/place berbasis data scan: telur yang sudah ditaruh = Workspace.PlacedEggRenders (nama "<UserId>_<UID>"),
+-- prompt "Hatch!" ada di Workspace.SmartPromptPart yang berpindah sendiri ke telur terdekat dari karakter.
+function V25.myPlotAnchor()
+    local mp = V25.myPlot()
+    if not mp then return nil end
+    for _, path in ipairs({ { "CenterPoint" }, { "ToUpdate", "CenterPoint" }, { "ToUpdate", "PetArea" }, { "SpawnPoint" } }) do
+        local cur = mp
+        for _, nm in ipairs(path) do cur = cur and cur:FindFirstChild(nm) end
+        if cur and cur:IsA("BasePart") then return cur.Position end
+    end
+    return getInstPosition(mp)
+end
+function V25.myPlacedEggs()
+    local list = {}
+    local f = Workspace:FindFirstChild("PlacedEggRenders")
+    if f then
+        for _, m in ipairs(f:GetChildren()) do
+            if ownedByMe(m) and getInstPosition(m) then table.insert(list, m) end
+        end
+    end
+    return list
+end
+function V25.nearbyPrompt(kws, maxDist, excludePath)
+    local hrp = getHRP(); if not hrp then return nil end
+    local sources = {}
+    for _, ch in ipairs(Workspace:GetChildren()) do
+        if ch.Name == "SmartPromptPart" then
+            for _, d in ipairs(ch:GetDescendants()) do table.insert(sources, d) end
+        end
+    end
+    if #sources == 0 then sources = Snapshot.get() end
+    local best, bestD = nil, maxDist
+    for _, p in ipairs(sources) do
+        if p:IsA("ProximityPrompt") and p.Parent and p.Enabled and promptMatches(p, kws) then
+            if not (excludePath and p:GetFullName():lower():find(excludePath, 1, true)) then
+                local pos = getPromptPosition(p)
+                if pos then
+                    local d = (pos - hrp.Position).Magnitude
+                    if d <= bestD then best, bestD = p, d end
+                end
+            end
+        end
+    end
+    return best
+end
+function V25.logNearbyPrompts(tag)
+    local hrp = getHRP(); if not hrp then return end
+    local seen = 0
+    for _, p in ipairs(Snapshot.get()) do
+        if p:IsA("ProximityPrompt") and p.Parent then
+            local pos = getPromptPosition(p)
+            if pos and (pos - hrp.Position).Magnitude <= 20 then
+                seen += 1
+                if seen > 4 then break end
+                log(("%s: prompt dekat aksi='%s' objek='%s' aktif=%s (%s)"):format(tag, tostring(p.ActionText), tostring(p.ObjectText), tostring(p.Enabled), p.Parent.Name))
+            end
+        end
+    end
+    if seen == 0 then log(tag .. ": tidak ada prompt dalam 20 stud") end
+end
 local function autoHatchOnce()
     ensureBase()
     local btns = findButtons(HINTS.hatch, false)
     if #btns > 0 then clickButton(btns[1]); task.wait(0.3) end
-    local n = actOnPrompts(HINTS.hatch)
-    if n > 0 then log("Auto Hatch: " .. n) end
+    local always = function() return uiAlive end
+    local count = 0
+    local eggs = V25.myPlacedEggs()
+    for i, egg in ipairs(eggs) do
+        if not uiAlive or i > 12 then break end
+        local hrp = getHRP(); local pos = getInstPosition(egg)
+        if not hrp or not pos or not egg.Parent then break end
+        if (hrp.Position - pos).Magnitude > 8 then goTo(hrp, pos + Vector3.new(0, 3, 0), always) end
+        local p
+        for _ = 1, 6 do
+            p = V25.nearbyPrompt(HINTS.hatch, 18)
+            if p then break end
+            task.wait(0.15)
+        end
+        if p then triggerPrompt(p); count += 1; task.wait(0.5) end
+    end
+    if count == 0 then count = actOnPrompts(HINTS.hatch) end
+    if count > 0 then log("Auto Hatch: " .. count)
+    elseif #eggs > 0 then log("Auto Hatch: " .. #eggs .. " telur di plot, prompt Hatch belum muncul (belum siap?)") end
 end
 local function eggToolMatches(tool)
     local text = tool.Name:lower()
     for k, v in pairs(tool:GetAttributes()) do text = text .. " " .. tostring(k):lower() .. ":" .. tostring(v):lower() end
     return passesFilters(tool, text, config.placeFilters)
 end
+function V25.isEggItem(t)
+    return t:IsA("Tool") and (t:GetAttribute("ItemType") == "AssetEgg" or t.Name:lower():find("egg", 1, true) ~= nil)
+end
 local function autoPlaceOnce()
     ensureBase()
-    local hrp, hum = getChar(); if not hrp or not hum then return end
-    if not isCarrying() then
+    local hrp, hum, char = getChar(); if not hrp or not hum then return end
+    local always = function() return uiAlive end
+    -- 1) pilih / pegang telur yang lolos filter place
+    local tool
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if V25.isEggItem(t) and eggToolMatches(t) then tool = t; break end
+        end
+    end
+    if not tool then
         for _, t in ipairs(player.Backpack:GetChildren()) do
-            if t:IsA("Tool") and t.Name:lower():find("egg", 1, true) and eggToolMatches(t) then
-                pcall(function() hum:EquipTool(t) end); task.wait(0.3); break
+            if V25.isEggItem(t) and eggToolMatches(t) then
+                tool = t
+                pcall(function() hum:EquipTool(t) end); task.wait(0.3)
+                break
             end
         end
     end
-    local n = actOnPrompts(HINTS.place)
-    if n > 0 then log("Auto Place: " .. n) end
+    if not tool then return end
+    -- 2) titik tempat taruh = Prompt1/2/3 + GridCenter di StarterPen plot sendiri
+    local spots = {}
+    local mp = V25.myPlot()
+    local td = mp and mp:FindFirstChild("ToUpdate")
+    local pen = td and td:FindFirstChild("StarterPen")
+    if pen then
+        for _, nm in ipairs({ "Prompt1", "Prompt2", "Prompt3", "GridCenter" }) do
+            local part = pen:FindFirstChild(nm)
+            if part and part:IsA("BasePart") then table.insert(spots, part.Position) end
+        end
+    end
+    if #spots == 0 then
+        local a = V25.myPlotAnchor()
+        if a then table.insert(spots, a) end
+    end
+    if #spots == 0 then log("Auto Place: plot sendiri tidak ditemukan"); return end
+    local before = #V25.myPlacedEggs()
+    -- percobaan sebelumnya gagal dengan jumlah telur plot yang sama (kemungkinan slot penuh): jangan keliling lagi,
+    -- tunggu sampai ada telur yang di-hatch (jumlah berubah)
+    if V25.placeFullAt == before then return end
+    local function toolGone()
+        return tool.Parent ~= player.Character and tool.Parent ~= player.Backpack
+    end
+    for _, sp in ipairs(spots) do
+        if not uiAlive then return end
+        local h = getHRP(); if not h then return end
+        if (h.Position - sp).Magnitude > 6 then goTo(h, sp + Vector3.new(0, 3, 0), always) end
+        if tool.Parent ~= player.Character then pcall(function() hum:EquipTool(tool) end); task.wait(0.2) end
+        local p
+        for _ = 1, 6 do
+            p = V25.nearbyPrompt(HINTS.place, 14, "fusion")
+            if p then break end
+            task.wait(0.15)
+        end
+        if p then triggerPrompt(p)
+        elseif tool.Parent == player.Character then pcall(function() tool:Activate() end) end
+        task.wait(0.8)
+        if toolGone() or #V25.myPlacedEggs() > before then
+            V25.placeFullAt = nil
+            log("Auto Place: telur ditaruh")
+            return
+        end
+    end
+    V25.placeFullAt = before
+    log("Auto Place: gagal menaruh telur (plot berisi " .. before .. " telur; kalau slot penuh, hatch dulu)")
+    V25.logNearbyPrompts("Auto Place")
 end
 local function autoFuseOnce()
     ensureBase()
@@ -2141,9 +2276,9 @@ do
         end
         return text:find("favorited", 1, true) ~= nil
     end
-    local function isEggTool(tool) return tool.Name:lower():find("egg", 1, true) ~= nil end
+    function V25.isEggTool(tool) return tool.Name:lower():find("egg", 1, true) ~= nil end
     local function isGearTool(tool) return nameHasAny(tool.Name, GEAR_WORDS) end
-    local function isPetTool(tool) return not isEggTool(tool) and not isGearTool(tool) end
+    local function isPetTool(tool) return not V25.isEggTool(tool) and not isGearTool(tool) end
     local function parseNames(s)
         local list = {}
         for w in tostring(s or ""):gmatch("[^,;\n]+") do
@@ -2207,7 +2342,7 @@ do
         if not hasAnyFilter(config.sellFilters) then warnOnce("sell_nofilter", "Auto Sell Egg: pilih rarity dulu."); return end
         local list = {}
         for _, t in ipairs(allTools()) do
-            if isEggTool(t) then
+            if V25.isEggTool(t) then
                 local text = itemText(t)
                 if not isFavorited(t, text) and passesFilters(t, text, config.sellFilters) then table.insert(list, t) end
             end
@@ -2324,7 +2459,7 @@ do
         for i, t in ipairs(allTools()) do
             if i > 40 then dbg("... dipotong"); break end
             local text = itemText(t)
-            local kind = isEggTool(t) and "EGG" or (isGearTool(t) and "GEAR" or "PET/ITEM")
+            local kind = V25.isEggTool(t) and "EGG" or (isGearTool(t) and "GEAR" or "PET/ITEM")
             local attrs = {}
             for k, v in pairs(t:GetAttributes()) do table.insert(attrs, tostring(k) .. "=" .. tostring(v)) end
             dbg(("%s | %s | fav=%s | attr: %s"):format(t.Name, kind, tostring(isFavorited(t, text)), #attrs > 0 and table.concat(attrs, ", ") or "-"))
