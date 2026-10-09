@@ -1306,6 +1306,16 @@ local function findTreadmill()
         Treadmill.how = "papan nama plot"
         return mine
     end
+    if Workspace:FindFirstChild("Plots") then
+        -- struktur Plots dikenal: jangan menebak treadmill lain (plot kosong/orang lain). Tunggu papan nama atau pakai "Set Treadmill".
+        local why = mp and "plot-treadmill-di-ban" or "plot-belum-ketemu"
+        if Treadmill.how ~= why then
+            log(mp and "Treadmill plotmu sedang dilewati sementara (gagal dijangkau)" or "Plot sendiri belum terbaca dari papan nama. Tunggu sebentar atau pakai tombol Set Treadmill")
+            Treadmill.how = why
+        end
+        Treadmill.inst = nil
+        return nil
+    end
     if Treadmill.inst and Treadmill.inst.Parent and Treadmill.inst:IsDescendantOf(Workspace) and not Treadmill.banned[Treadmill.inst] then
         return Treadmill.inst
     end
@@ -3186,7 +3196,7 @@ do
 
     -- 7) Remote penting (nama yang berkaitan shop/lab/treadmill/telur dst)
     function V25.scanRemotesKey(dbg)
-        local keys = { "shop", "lab", "scramble", "open", "buy", "purchase", "sell", "treadmill", "egg", "steal", "claim", "upgrade", "pet", "favorite", "equip", "place", "boss", "event", "experiment", "teleport", "gui", "menu" }
+        local keys = { "shop", "lab", "scramble", "open", "buy", "purchase", "sell", "treadmill", "egg", "steal", "claim", "upgrade", "pet", "favorite", "equip", "place", "boss", "event", "experiment", "teleport", "gui", "menu", "hatch", "collect", "incubat", "slot", "pen" }
         dbg("== SCAN REMOTE PENTING ==")
         local total, n = 0, 0
         for _, root in ipairs({ game:GetService("ReplicatedStorage"), Workspace }) do
@@ -3230,6 +3240,144 @@ do
             end
         end
         if n == 0 then dbg("   (tidak ada)") end
+    end
+    -- 9) Place / Hatch: apa yang sebenarnya ada di plot sendiri untuk menaruh & menetaskan telur
+    function V25.scanPlaceHatch(dbg)
+        local hrp = getHRP()
+        local keys = { "hatch", "place", "collect", "incubat", "claim", "ready", "slot", "pen" }
+        dbg("== SCAN PLACE / HATCH ==")
+        local plot = V25.myPlot()
+        dbg("Plot milikku: " .. (plot and plot.Name or "TIDAK DITEMUKAN"))
+        if plot then
+            dbg("[POHON PLOT] kedalaman maks 3:")
+            local lines = 0
+            local function walk(inst, depth)
+                for _, ch in ipairs(inst:GetChildren()) do
+                    lines += 1
+                    if lines > 150 then return end
+                    dbg(("%s%s (%s) | %s"):format(string.rep("  ", depth), ch.Name, ch.ClassName, attrStr(ch)))
+                    if depth < 3 then walk(ch, depth + 1) end
+                end
+            end
+            walk(plot, 1)
+            if lines > 150 then dbg("   ... dipotong 150 baris") end
+            dbg("[PROMPT di plotku]:")
+            local n = 0
+            local base = #plot:GetFullName() + 2
+            for _, p in ipairs(plot:GetDescendants()) do
+                if p:IsA("ProximityPrompt") then
+                    n += 1; if n > 30 then dbg("   ... dipotong"); break end
+                    dbg(("   %s | aksi='%s' | objek='%s' | aktif=%s | jarak=%d"):format(
+                        p:GetFullName():sub(base), tostring(p.ActionText), tostring(p.ObjectText), tostring(p.Enabled), distOf(getPromptPosition(p), hrp)))
+                end
+            end
+            if n == 0 then dbg("   (tidak ada)") end
+        end
+        for _, fname in ipairs({ "PlacedEggRenders", "Eggs" }) do
+            local f = Workspace:FindFirstChild(fname)
+            dbg(("[%s] %s"):format(fname, f and ("anak=" .. #f:GetChildren()) or "tidak ada"))
+            if f then
+                for i, ch in ipairs(f:GetChildren()) do
+                    if i > 8 then dbg("   ... dipotong"); break end
+                    dbg(("   %s (%s) | jarak=%d | milikku=%s | atribut: %s"):format(ch.Name, ch.ClassName, distOf(getInstPosition(ch), hrp), tostring(ownedByMe(ch)), attrStr(ch)))
+                    local k = 0
+                    for _, d in ipairs(ch:GetDescendants()) do
+                        if k >= 6 then break end
+                        if d:IsA("TextLabel") and d.Text ~= "" then k += 1; dbg(("      teks %s = '%s'"):format(d.Name, clip(d.Text, 50)))
+                        elseif d:IsA("ProximityPrompt") then k += 1; dbg(("      prompt aksi='%s' | objek='%s'"):format(tostring(d.ActionText), tostring(d.ObjectText)))
+                        elseif d:IsA("ValueBase") then k += 1; dbg(("      value %s = %s"):format(d.Name, clip(valueLine(d), 50))) end
+                    end
+                end
+            end
+        end
+        dbg("[PROMPT dunia] aksi/objek berisi hatch/place/collect/dst (jarak berapa pun):")
+        local n2 = 0
+        for _, p in ipairs(Workspace:GetDescendants()) do
+            if p:IsA("ProximityPrompt") and matchesAny(tostring(p.ActionText) .. " " .. tostring(p.ObjectText), keys) then
+                n2 += 1; if n2 > 20 then dbg("   ... dipotong"); break end
+                dbg(("   %s | aksi='%s' | objek='%s' | jarak=%d"):format(p:GetFullName(), tostring(p.ActionText), tostring(p.ObjectText), distOf(getPromptPosition(p), hrp)))
+            end
+        end
+        if n2 == 0 then dbg("   (tidak ada)") end
+        dbg("[GUI] tombol terlihat yang cocok hatch/place/collect/dst:")
+        local n3 = 0
+        for _, b in ipairs(playerGui:GetDescendants()) do
+            if (b:IsA("TextButton") or b:IsA("ImageButton")) and not b:IsDescendantOf(sg) and guiVisible(b) then
+                local label = buttonLabel(b)
+                if matchesAny(b.Name .. " " .. label, keys) then
+                    n3 += 1; if n3 > 25 then dbg("   ... dipotong"); break end
+                    dbg(("   %s | teks='%s'"):format(b:GetFullName(), clip(label, 40)))
+                end
+            end
+        end
+        if n3 == 0 then dbg("   (tidak ada)") end
+        dbg("[BACKPACK / TOOL TELUR]")
+        pcall(V25.scanBackpack, dbg)
+    end
+
+    -- 10) Kamus telur: nilai rarity/variant/size/atribut/teks yang BENAR-BENAR ada di game + uji filter skrip
+    function V25.scanEggVocab(dbg)
+        dbg("== SCAN KAMUS TELUR ==")
+        local roots, seen = {}, {}
+        local function add(r) if r and not seen[r] then seen[r] = true; table.insert(roots, r) end end
+        for _, p in ipairs(collectEggPrompts()) do add(getEggRoot(p)) end
+        for _, fname in ipairs({ "PlacedEggRenders", "Eggs" }) do
+            local f = Workspace:FindFirstChild(fname)
+            if f then for _, ch in ipairs(f:GetChildren()) do add(ch) end end
+        end
+        for _, t in ipairs(player.Backpack:GetChildren()) do
+            if t:IsA("Tool") and t.Name:lower():find("egg", 1, true) then add(t) end
+        end
+        dbg(("Telur dianalisis: %d"):format(#roots))
+        if #roots == 0 then return end
+        local names, attrCount, texts = {}, {}, {}
+        local function bump(map, key) map[key] = (map[key] or 0) + 1 end
+        local function dump(title, map, maxN)
+            local arr = {}
+            for k, v in pairs(map) do table.insert(arr, { k = k, v = v }) end
+            table.sort(arr, function(a, b) if a.v ~= b.v then return a.v > b.v end return a.k < b.k end)
+            dbg(title .. " (" .. #arr .. " unik)")
+            for i, e in ipairs(arr) do
+                if i > maxN then dbg("   ... dipotong"); break end
+                dbg(("   %s  x%d"):format(e.k, e.v))
+            end
+        end
+        for _, r in ipairs(roots) do
+            bump(names, r.Name)
+            for k, v in pairs(r:GetAttributes()) do
+                attrCount[k] = attrCount[k] or {}
+                bump(attrCount[k], clip(tostring(v), 40))
+            end
+            local c = 0
+            for _, d in ipairs(r:GetDescendants()) do
+                c += 1; if c > 300 then break end
+                if d:IsA("TextLabel") and d.Text ~= "" then bump(texts, clip(d.Text, 40)) end
+            end
+        end
+        dump("[NAMA objek telur]", names, 40)
+        local keysSorted = {}
+        for k in pairs(attrCount) do table.insert(keysSorted, k) end
+        table.sort(keysSorted)
+        for _, k in ipairs(keysSorted) do dump("[ATRIBUT " .. k .. "]", attrCount[k], 25) end
+        dump("[TEKS di dalam telur]", texts, 50)
+        dbg("[UJI FILTER SKRIP] jumlah telur yang cocok per opsi (0 = opsi tidak pernah terlihat):")
+        local texts2 = {}
+        for _, r in ipairs(roots) do
+            local ok, t = pcall(collectEggText, r)
+            texts2[r] = (ok and type(t) == "string") and t or r.Name:lower()
+        end
+        for _, entry in ipairs(FILTERS) do
+            local line = {}
+            for _, o in ipairs(entry[2]) do
+                local cnt = 0
+                for _, r in ipairs(roots) do
+                    local ok, hit = pcall(matchesValue, r, texts2[r], o)
+                    if ok and hit then cnt += 1 end
+                end
+                table.insert(line, o .. "=" .. cnt)
+            end
+            dbg("   " .. entry[1] .. ": " .. table.concat(line, ", "))
+        end
     end
 end
 
@@ -4548,6 +4696,8 @@ local function buildUI()
         { "Scan Remote Penting", function() V25.scanRemotesKey(dbg) end },
         { "Scan Event / Boss", function() V25.scanEvents(dbg) end },
         { "Scan Data Pemain", function() V25.scanPlayerData(dbg) end },
+        { "Scan Place / Hatch (plot sendiri)", function() V25.scanPlaceHatch(dbg) end },
+        { "Scan Kamus Telur + Uji Filter", function() V25.scanEggVocab(dbg) end },
         { "Scan Teks Filter Telur", scanFilterText },
         { "Scan Safe Zone", function() V25.scanSafe(dbg) end },
         { "Scan Shop GUI", scanShopGui },
