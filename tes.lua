@@ -3547,6 +3547,29 @@ do
             if t:IsA("Tool") then table.insert(tools, { t = t, where = "Backpack" }) end
         end
         dbg(("[TOOL] jumlah: %d"):format(#tools))
+        do
+            local counts = {}
+            for _, e in ipairs(tools) do
+                local it = tostring(e.t:GetAttribute("ItemType") or "?")
+                counts[it] = (counts[it] or 0) + 1
+            end
+            local parts = {}
+            for it, c in pairs(counts) do table.insert(parts, it .. "=" .. c) end
+            table.sort(parts)
+            dbg("[TOOL] ringkasan ItemType: " .. table.concat(parts, ", "))
+            -- item bukan pet (telur / gear) ditaruh paling atas supaya tidak terpotong
+            local function rank(e)
+                if e.where == "Character" then return 0 end
+                if e.t:GetAttribute("ItemType") ~= "Asset" then return 1 end
+                return 2
+            end
+            for i, e in ipairs(tools) do e.i = i end
+            table.sort(tools, function(a, b)
+                local ra, rb = rank(a), rank(b)
+                if ra ~= rb then return ra < rb end
+                return a.i < b.i
+            end)
+        end
         local detailed = 0
         for i, e in ipairs(tools) do
             if i > 40 then dbg("   ... dipotong"); break end
